@@ -137,6 +137,12 @@ func (fl *follow) handleDecodeErr(err error) error {
 }
 
 func (fl *follow) mainLoop(since, until time.Time) {
+	defer func() {
+		fl.file.Close()
+		fl.dec.Close()
+		fl.fileWatcher.Close()
+	}()
+
 	for {
 		select {
 		case err := <-fl.notifyEvict:
@@ -192,11 +198,6 @@ func followLogs(f *os.File, logWatcher *logger.LogWatcher, notifyRotate, notifyE
 		logWatcher.Err <- err
 		return
 	}
-	defer func() {
-		f.Close()
-		dec.Close()
-		fileWatcher.Close()
-	}()
 
 	fl := &follow{
 		file:         f,
