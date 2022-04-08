@@ -15,6 +15,8 @@ import (
 	"github.com/docker/docker/dockerversion"
 	"github.com/gorilla/mux"
 	"github.com/sirupsen/logrus"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gorilla/mux/otelmux"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // versionMatcher defines a variable matcher to be parsed by the router
@@ -139,6 +141,7 @@ func (s *Server) makeHTTPHandler(handler httputils.APIFunc) http.HandlerFunc {
 		}
 
 		if err := handlerFunc(ctx, w, r, vars); err != nil {
+			trace.SpanFromContext(ctx).RecordError(err)
 			statusCode := httpstatus.FromError(err)
 			if statusCode >= 500 {
 				logrus.Errorf("Handler for %s %s returned error: %v", r.Method, r.URL.Path, err)
@@ -165,6 +168,7 @@ func (pageNotFoundError) NotFound() {}
 // createMux initializes the main router the server uses.
 func (s *Server) createMux() *mux.Router {
 	m := mux.NewRouter()
+	m.Use(otelmux.Middleware(""))
 
 	logrus.Debug("Registering routers")
 	for _, apiRouter := range s.routers {

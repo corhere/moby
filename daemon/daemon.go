@@ -62,6 +62,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"go.etcd.io/bbolt"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"golang.org/x/sync/semaphore"
 	"golang.org/x/sync/singleflight"
 	"google.golang.org/grpc"
@@ -892,6 +893,9 @@ func NewDaemon(ctx context.Context, config *config.Config, pluginStore *plugin.S
 		// TODO(stevvooe): We may need to allow configuration of this on the client.
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(defaults.DefaultMaxRecvMsgSize)),
 		grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(defaults.DefaultMaxSendMsgSize)),
+
+		grpc.WithUnaryInterceptor(otelgrpc.UnaryClientInterceptor()),
+		grpc.WithStreamInterceptor(otelgrpc.StreamClientInterceptor()),
 	}
 
 	if config.ContainerdAddr != "" {

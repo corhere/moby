@@ -3,6 +3,7 @@ package grpc // import "github.com/docker/docker/api/server/router/grpc"
 import (
 	"github.com/docker/docker/api/server/router"
 	"github.com/moby/buildkit/util/grpcerrors"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"golang.org/x/net/http2"
 	"google.golang.org/grpc"
 )
@@ -15,7 +16,16 @@ type grpcRouter struct {
 
 // NewRouter initializes a new grpc http router
 func NewRouter(backends ...Backend) router.Router {
-	opts := []grpc.ServerOption{grpc.UnaryInterceptor(grpcerrors.UnaryServerInterceptor), grpc.StreamInterceptor(grpcerrors.StreamServerInterceptor)}
+	opts := []grpc.ServerOption{
+		grpc.ChainUnaryInterceptor(
+			otelgrpc.UnaryServerInterceptor(),
+			grpcerrors.UnaryServerInterceptor,
+		),
+		grpc.ChainStreamInterceptor(
+			otelgrpc.StreamServerInterceptor(),
+			grpcerrors.StreamServerInterceptor,
+		),
+	}
 	server := grpc.NewServer(opts...)
 
 	r := &grpcRouter{

@@ -8,10 +8,12 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
 	containerddefaults "github.com/containerd/containerd/defaults"
+	c8dtraceplugin "github.com/containerd/containerd/tracing/plugin"
 	"github.com/docker/docker/api"
 	apiserver "github.com/docker/docker/api/server"
 	buildbackend "github.com/docker/docker/api/server/backend/build"
@@ -53,9 +55,13 @@ import (
 	"github.com/docker/go-connections/tlsconfig"
 	swarmapi "github.com/docker/swarmkit/api"
 	"github.com/moby/buildkit/session"
+	"github.com/moby/buildkit/util/tracing/detect"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
+	"github.com/uptrace/opentelemetry-go-extra/otellogrus"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 )
 
 // DaemonCli represents the daemon CLI.
@@ -95,6 +101,20 @@ func (cli *DaemonCli) start(opts *daemonOptions) (err error) {
 	if err := configureDaemonLogs(cli.Config); err != nil {
 		return err
 	}
+
+	tp, err := detect.TracerProvider()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := detect.Shutdown(ctx); err != nil {
+			logrus.WithError(err).Error("error shutting down tracing")
+		}
+	}()
+	otel.SetTracerProvider(tp)
+	otel.SetTextMapPropagator(propagation.TraceContext{})
 
 	logrus.Info("Starting up")
 
@@ -564,6 +584,64 @@ func (cli *DaemonCli) getContainerdDaemonOpts() ([]supervisor.DaemonOpt, error) 
 		opts = append(opts, supervisor.WithPlugin("cri", nil))
 	}
 
+	// containerd 1.6 does not support configuring OpenTelemetry tracing
+	// through the standard environment variables so we need to map the
+	// environment variables to tracing plugin config. See also:
+	// https://github.com/open-telemetry/opentelemetry-specification/blob/v1.10.0/specification/protocol/exporter.md
+	// https://github.com/open-telemetry/opentelemetry-specification/blob/v1.10.0/specification/sdk-environment-variables.md
+	// https://github.com/containerd/containerd/blob/v1.6.2/docs/tracing.md
+	if exp := os.Getenv("OTEL_TRACES_EXPORTER"); exp == "" || exp == "otlp" {
+		var cfg c8dtraceplugin.OTLPConfig
+		cfg.Endpoint = os.Getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
+		if cfg.Endpoint == "" {
+			cfg.Endpoint = os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+		}
+		cfg.Protocol = os.Getenv("OTEL_EXPORTER_OTLP_PROTOCOL")
+		if cfg.Protocol == "" {
+			cfg.Protocol = os.Getenv("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL")
+		}
+		if cfg.Protocol == "" {
+			// containerd complies with the spec, defaulting to
+			// "http/protobuf". As we want to configure containerd
+			// to export traces using the same config as dockerd, we
+			// need to follow the defaults from the
+			// github.com/moby/buildkit/util/tracing/detect package
+			// which is not entirely spec-compliant.
+			cfg.Protocol = "grpc"
+		}
+		lookupBoolEnv := func(name string) (v, ok bool) {
+			s, ok := os.LookupEnv(name)
+			if !ok {
+				return false, false
+			}
+			v, err := strconv.ParseBool(s)
+			// For variables accepting an enum value, if the user
+			// provides a value the SDK does not recognize, the SDK
+			// MUST generate a warning and gracefully ignore the
+			// setting.
+			// -- https://github.com/open-telemetry/opentelemetry-specification/blob/v1.10.0/specification/sdk-environment-variables.md#enum-value
+			if err != nil {
+				logrus.WithError(err).Warnf("Invalid value for environment variable %s. Acceptable values are 1, t, T, TRUE, true, True, 0, f, F, FALSE, false, False.", name)
+				return false, false
+			}
+			return v, true
+		}
+		var ok bool
+		cfg.Insecure, ok = lookupBoolEnv("OTEL_EXPORTER_OTLP_TRACES_INSECURE")
+		if !ok {
+			cfg.Insecure, _ = lookupBoolEnv("OTEL_EXPORTER_OTLP_INSECURE")
+		}
+
+		svc := "docker-containerd"
+		if n := os.Getenv("OTEL_SERVICE_NAME"); n != "" {
+			svc = n + "-containerd"
+		}
+		opts = append(opts,
+			supervisor.WithPlugin("tracing", c8dtraceplugin.TraceConfig{ServiceName: svc, TraceSamplingRatio: 1.0}),
+			supervisor.WithPlugin("otlp", cfg),
+		)
+	}
+
 	return opts, nil
 }
 
@@ -767,20 +845,26 @@ func systemContainerdRunning(honorXDG bool) (string, bool, error) {
 
 // configureDaemonLogs sets the logrus logging level and formatting
 func configureDaemonLogs(conf *config.Config) error {
+	lvl := logrus.InfoLevel
 	if conf.LogLevel != "" {
-		lvl, err := logrus.ParseLevel(conf.LogLevel)
+		var err error
+		lvl, err = logrus.ParseLevel(conf.LogLevel)
 		if err != nil {
 			return fmt.Errorf("unable to parse logging level: %s", conf.LogLevel)
 		}
-		logrus.SetLevel(lvl)
-	} else {
-		logrus.SetLevel(logrus.InfoLevel)
 	}
+	logrus.SetLevel(lvl)
 	logrus.SetFormatter(&logrus.TextFormatter{
 		TimestampFormat: jsonmessage.RFC3339NanoFixed,
 		DisableColors:   conf.RawLogs,
 		FullTimestamp:   true,
 	})
+
+	if lvl == logrus.DebugLevel {
+		logrus.AddHook(otellogrus.NewHook(otellogrus.WithLevels(logrus.AllLevels...)))
+	} else {
+		logrus.AddHook(otellogrus.NewHook())
+	}
 	return nil
 }
 

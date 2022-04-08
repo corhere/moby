@@ -75,13 +75,18 @@ require (
 	github.com/tchap/go-patricia v2.3.0+incompatible
 	github.com/tonistiigi/fsutil v0.0.0-20220115021204-b19f7f9cb274
 	github.com/tonistiigi/go-archvariant v1.0.0
+	github.com/uptrace/opentelemetry-go-extra/otellogrus v0.1.11
 	github.com/vbatts/tar-split v0.11.2
 	github.com/vishvananda/netlink v1.1.1-0.20210330154013-f5de75959ad5
 	github.com/vishvananda/netns v0.0.0-20210104183010-2eb08e3e575f
 	go.etcd.io/bbolt v1.3.6
+	go.opentelemetry.io/contrib/instrumentation/github.com/gorilla/mux/otelmux v0.31.0
+	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.31.0
+	go.opentelemetry.io/otel v1.6.1
+	go.opentelemetry.io/otel/trace v1.6.1
 	golang.org/x/net v0.0.0-20211216030914-fe4d6282115f
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
-	golang.org/x/sys v0.0.0-20220319134239-a9b59b0215f8
+	golang.org/x/sys v0.0.0-20220328115105-d36c6a25d886
 	golang.org/x/time v0.0.0-20211116232009-f0f3c7e86c11
 	google.golang.org/genproto v0.0.0-20211208223120-3a66f561d7aa
 	google.golang.org/grpc v1.45.0
@@ -96,6 +101,7 @@ require (
 	github.com/armon/circbuf v0.0.0-20190214190532-5111143e8da2 // indirect
 	github.com/armon/go-metrics v0.0.0-20180917152333-f0300d1749da // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
+	github.com/cenkalti/backoff/v4 v4.1.2 // indirect
 	github.com/cespare/xxhash/v2 v2.1.2 // indirect
 	github.com/cilium/ebpf v0.7.0 // indirect
 	github.com/container-storage-interface/spec v1.5.0 // indirect
@@ -108,7 +114,7 @@ require (
 	github.com/dustin/go-humanize v1.0.0 // indirect
 	github.com/felixge/httpsnoop v1.0.2 // indirect
 	github.com/fernet/fernet-go v0.0.0-20180830025343-9eac43b88a5e // indirect
-	github.com/go-logr/logr v1.2.2 // indirect
+	github.com/go-logr/logr v1.2.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/gofrs/flock v0.8.1 // indirect
 	github.com/gogo/googleapis v1.4.1 // indirect
@@ -139,21 +145,22 @@ require (
 	github.com/sean-/seed v0.0.0-20170313163322-e2103e2c3529 // indirect
 	github.com/tinylib/msgp v1.1.0 // indirect
 	github.com/tonistiigi/units v0.0.0-20180711220420-6950e57a87ea // indirect
+	github.com/uptrace/opentelemetry-go-extra/otelutil v0.1.11 // indirect
 	github.com/vmihailenco/msgpack v4.0.4+incompatible // indirect
 	go.etcd.io/etcd/client/pkg/v3 v3.5.2 // indirect
 	go.etcd.io/etcd/pkg/v3 v3.5.2 // indirect
 	go.etcd.io/etcd/raft/v3 v3.5.2 // indirect
 	go.etcd.io/etcd/server/v3 v3.5.2 // indirect
 	go.opencensus.io v0.23.0 // indirect
-	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.29.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/httptrace/otelhttptrace v0.29.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.29.0 // indirect
-	go.opentelemetry.io/otel v1.4.1 // indirect
+	go.opentelemetry.io/otel/exporters/otlp/internal/retry v1.4.1 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.4.1 // indirect
+	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.4.1 // indirect
+	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.4.1 // indirect
 	go.opentelemetry.io/otel/internal/metric v0.27.0 // indirect
 	go.opentelemetry.io/otel/metric v0.27.0 // indirect
 	go.opentelemetry.io/otel/sdk v1.4.1 // indirect
-	go.opentelemetry.io/otel/trace v1.4.1 // indirect
 	go.opentelemetry.io/proto/otlp v0.12.0 // indirect
 	go.uber.org/atomic v1.7.0 // indirect
 	go.uber.org/multierr v1.6.0 // indirect
