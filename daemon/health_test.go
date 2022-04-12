@@ -1,6 +1,7 @@
 package daemon // import "github.com/docker/docker/daemon"
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -87,7 +88,7 @@ func TestHealthStates(t *testing.T) {
 	reset(c)
 
 	handleResult := func(startTime time.Time, exitCode int) {
-		handleProbeResult(daemon, c, &types.HealthcheckResult{
+		handleProbeResult(context.Background(), daemon, c, &types.HealthcheckResult{
 			Start:    startTime,
 			End:      startTime,
 			ExitCode: exitCode,

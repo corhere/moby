@@ -9,6 +9,7 @@ import (
 	"github.com/docker/docker/container"
 	libcontainerdtypes "github.com/docker/docker/libcontainerd/types"
 	"github.com/docker/docker/restartmanager"
+	"github.com/moby/buildkit/util/tracing"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
@@ -72,7 +73,7 @@ func (daemon *Daemon) handleContainerExit(c *container.Container, e *libcontaine
 	defer c.Unlock() // needs to be called before autoRemove
 
 	daemon.setStateCounter(c)
-	cpErr := c.CheckpointTo(daemon.containersReplica)
+	cpErr := c.CheckpointTo(context.TODO(), daemon.containersReplica)
 
 	daemon.LogContainerEventWithAttributes(c, "die", attributes)
 
@@ -92,7 +93,7 @@ func (daemon *Daemon) handleContainerExit(c *container.Container, e *libcontaine
 				c.Lock()
 				c.SetStopped(&exitStatus)
 				daemon.setStateCounter(c)
-				c.CheckpointTo(daemon.containersReplica)
+				c.CheckpointTo(context.TODO(), daemon.containersReplica)
 				c.Unlock()
 				defer daemon.autoRemove(context.TODO(), c)
 				if err != restartmanager.ErrRestartCanceled {
@@ -107,6 +108,9 @@ func (daemon *Daemon) handleContainerExit(c *container.Container, e *libcontaine
 
 // ProcessEvent is called by libcontainerd whenever an event occurs
 func (daemon *Daemon) ProcessEvent(ctx context.Context, id string, e libcontainerdtypes.EventType, ei libcontainerdtypes.EventInfo) error {
+	ctx, span := tracer.Start(ctx, "ProcessEvent")
+	defer span.End()
+
 	c, err := daemon.GetContainer(ctx, id)
 	if err != nil {
 		return errors.Wrapf(err, "could not find container %s", id)
@@ -122,7 +126,7 @@ func (daemon *Daemon) ProcessEvent(ctx context.Context, id string, e libcontaine
 		c.Lock()
 		defer c.Unlock()
 		daemon.updateHealthMonitor(c)
-		if err := c.CheckpointTo(daemon.containersReplica); err != nil {
+		if err := c.CheckpointTo(ctx, daemon.containersReplica); err != nil {
 			return err
 		}
 
@@ -140,12 +144,12 @@ func (daemon *Daemon) ProcessEvent(ctx context.Context, id string, e libcontaine
 			execConfig.ExitCode = &ec
 			execConfig.Running = false
 
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			execConfig.StreamConfig.Wait(ctx)
+			wctx, cancel := context.WithTimeout(tracing.ContextWithSpanFromContext(context.Background(), ctx), 2*time.Second)
+			execConfig.StreamConfig.Wait(wctx)
 			cancel()
 
 			if err := execConfig.CloseStreams(); err != nil {
-				logrus.Errorf("failed to cleanup exec %s streams: %s", c.ID, err)
+				logrus.WithContext(ctx).Errorf("failed to cleanup exec %s streams: %s", c.ID, err)
 			}
 
 			// remove the exec command from the container's store only and not the
@@ -172,7 +176,7 @@ func (daemon *Daemon) ProcessEvent(ctx context.Context, id string, e libcontaine
 
 			daemon.initHealthMonitor(c)
 
-			if err := c.CheckpointTo(daemon.containersReplica); err != nil {
+			if err := c.CheckpointTo(ctx, daemon.containersReplica); err != nil {
 				return err
 			}
 			daemon.LogContainerEvent(c, "start")
@@ -186,7 +190,7 @@ func (daemon *Daemon) ProcessEvent(ctx context.Context, id string, e libcontaine
 			c.Paused = true
 			daemon.setStateCounter(c)
 			daemon.updateHealthMonitor(c)
-			if err := c.CheckpointTo(daemon.containersReplica); err != nil {
+			if err := c.CheckpointTo(ctx, daemon.containersReplica); err != nil {
 				return err
 			}
 			daemon.LogContainerEvent(c, "pause")
@@ -200,7 +204,7 @@ func (daemon *Daemon) ProcessEvent(ctx context.Context, id string, e libcontaine
 			daemon.setStateCounter(c)
 			daemon.updateHealthMonitor(c)
 
-			if err := c.CheckpointTo(daemon.containersReplica); err != nil {
+			if err := c.CheckpointTo(ctx, daemon.containersReplica); err != nil {
 				return err
 			}
 			daemon.LogContainerEvent(c, "unpause")

@@ -85,7 +85,7 @@ func (daemon *Daemon) killWithSignal(ctx context.Context, container *containerpk
 
 	if !daemon.IsShuttingDown() {
 		container.HasBeenManuallyStopped = true
-		container.CheckpointTo(daemon.containersReplica)
+		container.CheckpointTo(ctx, daemon.containersReplica)
 	}
 
 	// if the container is currently restarting we do not need to send the signal

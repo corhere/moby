@@ -112,7 +112,7 @@ func (daemon *Daemon) cleanupContainer(ctx context.Context, container *container
 	// Save container state to disk. So that if error happens before
 	// container meta file got removed from disk, then a restart of
 	// docker should not make a dead container alive.
-	if err := container.CheckpointTo(daemon.containersReplica); err != nil && !os.IsNotExist(err) {
+	if err := container.CheckpointTo(ctx, daemon.containersReplica); err != nil && !os.IsNotExist(err) {
 		logrus.Errorf("Error saving dying container to disk: %v", err)
 	}
 	container.Unlock()

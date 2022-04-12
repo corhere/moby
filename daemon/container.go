@@ -127,7 +127,7 @@ func (daemon *Daemon) Register(ctx context.Context, c *container.Container) erro
 
 	daemon.containers.Add(c.ID, c)
 	daemon.idIndex.Add(c.ID)
-	return c.CheckpointTo(daemon.containersReplica)
+	return c.CheckpointTo(ctx, daemon.containersReplica)
 }
 
 func (daemon *Daemon) newContainer(name string, operatingSystem string, config *containertypes.Config, hostConfig *containertypes.HostConfig, imgID image.ID, managed bool) (*container.Container, error) {
@@ -231,7 +231,7 @@ func (daemon *Daemon) setHostConfig(ctx context.Context, container *container.Co
 
 	runconfig.SetDefaultNetModeIfBlank(hostConfig)
 	container.HostConfig = hostConfig
-	return container.CheckpointTo(daemon.containersReplica)
+	return container.CheckpointTo(ctx, daemon.containersReplica)
 }
 
 // verifyContainerSettings performs validation of the hostconfig and config

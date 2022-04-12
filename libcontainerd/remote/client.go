@@ -29,16 +29,22 @@ import (
 	"github.com/docker/docker/libcontainerd/queue"
 	libcontainerdtypes "github.com/docker/docker/libcontainerd/types"
 	"github.com/docker/docker/pkg/ioutils"
+	"github.com/moby/buildkit/util/tracing"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 // DockerContainerBundlePath is the label key pointing to the container's bundle path
 const DockerContainerBundlePath = "com.docker/engine.bundle.path"
+
+var tracer = otel.Tracer("github.com/docker/docker/libcontainerd/remote")
 
 type client struct {
 	client   *containerd.Client
@@ -678,10 +684,27 @@ func (c *client) createIO(fifos *cio.FIFOSet, containerID, processID string, std
 }
 
 func (c *client) processEvent(ctx context.Context, et libcontainerdtypes.EventType, ei libcontainerdtypes.EventInfo) {
+	ctx, span := tracer.Start(ctx, "processEvent",
+		trace.WithAttributes(
+			attribute.String("containerd.event.type", string(et)),
+			attribute.String("containerd.container.id", ei.ContainerID),
+			attribute.String("containerd.container.process.id", ei.ProcessID),
+			attribute.Int64("containerd.container.pid", int64(ei.Pid)),
+			attribute.Int64("containerd.container.process.exitcode", int64(ei.ExitCode)),
+			attribute.Bool("containerd.container.process.oomkilled", ei.OOMKilled),
+		),
+	)
+	span.RecordError(ei.Error)
+
 	c.eventQ.Append(ei.ContainerID, func() {
+		defer span.End()
+		span.AddEvent("process", trace.WithAttributes())
+
+		log := c.logger.WithContext(ctx)
+
 		err := c.backend.ProcessEvent(ctx, ei.ContainerID, et, ei)
 		if err != nil {
-			c.logger.WithError(err).WithFields(logrus.Fields{
+			log.WithError(err).WithFields(logrus.Fields{
 				"container":  ei.ContainerID,
 				"event":      et,
 				"event-info": ei,
@@ -692,7 +715,7 @@ func (c *client) processEvent(ctx context.Context, et libcontainerdtypes.EventTy
 			p, err := c.getProcess(ctx, ei.ContainerID, ei.ProcessID)
 			if err != nil {
 
-				c.logger.WithError(errors.New("no such process")).
+				log.WithError(errors.New("no such process")).
 					WithFields(logrus.Fields{
 						"error":     err,
 						"container": ei.ContainerID,
@@ -703,14 +726,14 @@ func (c *client) processEvent(ctx context.Context, et libcontainerdtypes.EventTy
 
 			ctr, err := c.getContainer(ctx, ei.ContainerID)
 			if err != nil {
-				c.logger.WithFields(logrus.Fields{
+				log.WithFields(logrus.Fields{
 					"container": ei.ContainerID,
 					"error":     err,
 				}).Error("failed to find container")
 			} else {
 				labels, err := ctr.Labels(ctx)
 				if err != nil {
-					c.logger.WithFields(logrus.Fields{
+					log.WithFields(logrus.Fields{
 						"container": ei.ContainerID,
 						"error":     err,
 					}).Error("failed to get container labels")
@@ -718,9 +741,9 @@ func (c *client) processEvent(ctx context.Context, et libcontainerdtypes.EventTy
 				}
 				newFIFOSet(labels[DockerContainerBundlePath], ei.ProcessID, true, false).Close()
 			}
-			_, err = p.Delete(context.Background())
+			_, err = p.Delete(tracing.ContextWithSpanFromContext(context.Background(), ctx))
 			if err != nil {
-				c.logger.WithError(err).WithFields(logrus.Fields{
+				log.WithError(err).WithFields(logrus.Fields{
 					"container": ei.ContainerID,
 					"process":   ei.ProcessID,
 				}).Warn("failed to delete process")

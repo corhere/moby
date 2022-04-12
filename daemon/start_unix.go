@@ -4,6 +4,8 @@
 package daemon // import "github.com/docker/docker/daemon"
 
 import (
+	"context"
+
 	"github.com/docker/docker/container"
 )
 
@@ -12,7 +14,7 @@ func (daemon *Daemon) getLibcontainerdCreateOptions(container *container.Contain
 	// Ensure a runtime has been assigned to this container
 	if container.HostConfig.Runtime == "" {
 		container.HostConfig.Runtime = daemon.configStore.GetDefaultRuntimeName()
-		container.CheckpointTo(daemon.containersReplica)
+		container.CheckpointTo(context.TODO(), daemon.containersReplica)
 	}
 
 	rt, err := daemon.getRuntime(container.HostConfig.Runtime)

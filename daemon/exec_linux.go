@@ -11,6 +11,9 @@ import (
 )
 
 func (daemon *Daemon) execSetPlatformOpt(ctx context.Context, c *container.Container, ec *exec.Config, p *specs.Process) error {
+	ctx, span := tracer.Start(ctx, "execSetPlatformOpt")
+	defer span.End()
+
 	if len(ec.User) > 0 {
 		var err error
 		p.User, err = getUser(c, ec.User)

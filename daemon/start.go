@@ -9,6 +9,7 @@ import (
 	containertypes "github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/container"
 	"github.com/docker/docker/errdefs"
+	"github.com/moby/buildkit/util/tracing"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
@@ -67,7 +68,7 @@ func (daemon *Daemon) ContainerStart(ctx context.Context, name string, hostConfi
 				// if user has change the network mode on starting, clean up the
 				// old networks. It is a deprecated feature and has been removed in Docker 1.12
 				ctr.NetworkSettings.Networks = nil
-				if err := ctr.CheckpointTo(daemon.containersReplica); err != nil {
+				if err := ctr.CheckpointTo(ctx, daemon.containersReplica); err != nil {
 					return errdefs.System(err)
 				}
 			}
@@ -120,22 +121,23 @@ func (daemon *Daemon) containerStart(ctx context.Context, container *container.C
 	// setup has been cleaned up properly
 	defer func() {
 		if err != nil {
+			ctx := tracing.ContextWithSpanFromContext(context.TODO(), ctx)
 			container.SetError(err)
 			// if no one else has set it, make sure we don't leave it at zero
 			if container.ExitCode() == 0 {
 				container.SetExitCode(128)
 			}
-			if err := container.CheckpointTo(daemon.containersReplica); err != nil {
-				logrus.Errorf("%s: failed saving state on start failure: %v", container.ID, err)
+			if err := container.CheckpointTo(ctx, daemon.containersReplica); err != nil {
+				logrus.WithContext(ctx).Errorf("%s: failed saving state on start failure: %v", container.ID, err)
 			}
 			container.Reset(false)
 
-			daemon.Cleanup(context.TODO(), container)
+			daemon.Cleanup(ctx, container)
 			// if containers AutoRemove flag is set, remove it after clean up
 			if container.HostConfig.AutoRemove {
 				container.Unlock()
-				if err := daemon.ContainerRm(context.TODO(), container.ID, &types.ContainerRmConfig{ForceRemove: true, RemoveVolume: true}); err != nil {
-					logrus.Errorf("can't remove container %s: %v", container.ID, err)
+				if err := daemon.ContainerRm(ctx, container.ID, &types.ContainerRmConfig{ForceRemove: true, RemoveVolume: true}); err != nil {
+					logrus.WithContext(ctx).Errorf("can't remove container %s: %v", container.ID, err)
 				}
 				container.Lock()
 			}
@@ -179,11 +181,11 @@ func (daemon *Daemon) containerStart(ctx context.Context, container *container.C
 	err = daemon.containerd.Create(ctx, container.ID, spec, shim, createOptions)
 	if err != nil {
 		if errdefs.IsConflict(err) {
-			logrus.WithError(err).WithField("container", container.ID).Error("Container not cleaned up from containerd from previous run")
+			logrus.WithContext(ctx).WithError(err).WithField("container", container.ID).Error("Container not cleaned up from containerd from previous run")
 			// best effort to clean up old container object
 			daemon.containerd.DeleteTask(ctx, container.ID)
 			if err := daemon.containerd.Delete(ctx, container.ID); err != nil && !errdefs.IsNotFound(err) {
-				logrus.WithError(err).WithField("container", container.ID).Error("Error cleaning up stale containerd container object")
+				logrus.WithContext(ctx).WithError(err).WithField("container", container.ID).Error("Error cleaning up stale containerd container object")
 			}
 			err = daemon.containerd.Create(ctx, container.ID, spec, shim, createOptions)
 		}
@@ -200,8 +202,9 @@ func (daemon *Daemon) containerStart(ctx context.Context, container *container.C
 		// context may be expired at this point but we still want to clean up, so
 		// use a fresh context.
 		// TODO: timeout to help prevent lockups? Can we make this async?
-		if err := daemon.containerd.Delete(context.TODO(), container.ID); err != nil {
-			logrus.WithError(err).WithField("container", container.ID).
+		ctx := tracing.ContextWithSpanFromContext(context.TODO(), ctx)
+		if err := daemon.containerd.Delete(ctx, container.ID); err != nil {
+			logrus.WithContext(ctx).WithError(err).WithField("container", container.ID).
 				Error("failed to delete failed start container")
 		}
 		return translateContainerdStartErr(container.Path, container.SetExitCode, err)
@@ -213,8 +216,8 @@ func (daemon *Daemon) containerStart(ctx context.Context, container *container.C
 
 	daemon.initHealthMonitor(container)
 
-	if err := container.CheckpointTo(daemon.containersReplica); err != nil {
-		logrus.WithError(err).WithField("container", container.ID).
+	if err := container.CheckpointTo(ctx, daemon.containersReplica); err != nil {
+		logrus.WithContext(ctx).WithError(err).WithField("container", container.ID).
 			Errorf("failed to store container")
 	}
 

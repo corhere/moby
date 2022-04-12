@@ -41,12 +41,15 @@ import (
 	"github.com/moby/sys/symlink"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel"
 )
 
 const (
 	configFileName     = "config.v2.json"
 	hostConfigFileName = "hostconfig.json"
 )
+
+var tracer = otel.Tracer("github.com/docker/docker/container")
 
 // ExitStatus provides exit reasons for a container.
 type ExitStatus struct {
@@ -195,7 +198,11 @@ func (container *Container) toDisk() (*Container, error) {
 
 // CheckpointTo makes the Container's current state visible to queries, and persists state.
 // Callers must hold a Container lock.
-func (container *Container) CheckpointTo(store ViewDB) error {
+func (container *Container) CheckpointTo(ctx context.Context, store ViewDB) error {
+	ctx, span := tracer.Start(ctx, "CheckpointTo")
+	defer span.End()
+	_ = ctx
+
 	deepCopy, err := container.toDisk()
 	if err != nil {
 		return err

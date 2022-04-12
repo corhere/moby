@@ -1,6 +1,7 @@
 package container // import "github.com/docker/docker/container"
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -44,7 +45,7 @@ func TestViewSaveDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := newContainer(t)
-	if err := c.CheckpointTo(db); err != nil {
+	if err := c.CheckpointTo(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Delete(c); err != nil {
@@ -59,11 +60,11 @@ func TestViewAll(t *testing.T) {
 		two   = newContainer(t)
 	)
 	one.Pid = 10
-	if err := one.CheckpointTo(db); err != nil {
+	if err := one.CheckpointTo(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
 	two.Pid = 20
-	if err := two.CheckpointTo(db); err != nil {
+	if err := two.CheckpointTo(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
 
@@ -92,7 +93,7 @@ func TestViewGet(t *testing.T) {
 		one   = newContainer(t)
 	)
 	one.ImageID = "some-image-123"
-	if err := one.CheckpointTo(db); err != nil {
+	if err := one.CheckpointTo(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
 	s, err := db.Snapshot().Get(one.ID)
@@ -172,7 +173,7 @@ func TestViewWithHealthCheck(t *testing.T) {
 			Status: "starting",
 		},
 	}
-	if err := one.CheckpointTo(db); err != nil {
+	if err := one.CheckpointTo(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
 	s, err := db.Snapshot().Get(one.ID)

@@ -15,6 +15,7 @@ import (
 	"github.com/docker/docker/api/types/versions"
 	"github.com/docker/docker/errdefs"
 	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/moby/buildkit/util/tracing"
 	"github.com/sirupsen/logrus"
 )
 
@@ -130,7 +131,7 @@ func (s *containerRouter) postContainerExecStart(ctx context.Context, w http.Res
 
 	// Now run the user process in container.
 	// Maybe we should we pass ctx here if we're not detaching?
-	if err := s.backend.ContainerExecStart(context.Background(), execName, stdin, stdout, stderr); err != nil {
+	if err := s.backend.ContainerExecStart(tracing.ContextWithSpanFromContext(context.Background(), ctx), execName, stdin, stdout, stderr); err != nil {
 		if execStartCheck.Detach {
 			return err
 		}

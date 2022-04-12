@@ -63,6 +63,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"go.etcd.io/bbolt"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
+	"go.opentelemetry.io/otel"
 	"golang.org/x/sync/semaphore"
 	"golang.org/x/sync/singleflight"
 	"google.golang.org/grpc"
@@ -78,6 +79,8 @@ const (
 var (
 	errSystemNotSupported = errors.New("the Docker daemon is not supported on this platform")
 )
+
+var tracer = otel.Tracer("github.com/docker/docker/daemon")
 
 // Daemon holds information about the Docker daemon.
 type Daemon struct {
@@ -383,7 +386,7 @@ func (daemon *Daemon) restore() error {
 							c.Paused = false
 							daemon.setStateCounter(c)
 							daemon.updateHealthMonitor(c)
-							if err := c.CheckpointTo(daemon.containersReplica); err != nil {
+							if err := c.CheckpointTo(context.Background(), daemon.containersReplica); err != nil {
 								log.WithError(err).Error("failed to update paused container state")
 							}
 							c.Unlock()
@@ -401,7 +404,7 @@ func (daemon *Daemon) restore() error {
 					c.Lock()
 					c.SetStopped(&container.ExitStatus{ExitCode: int(ec), ExitedAt: exitedAt})
 					daemon.Cleanup(context.Background(), c)
-					if err := c.CheckpointTo(daemon.containersReplica); err != nil {
+					if err := c.CheckpointTo(context.Background(), daemon.containersReplica); err != nil {
 						log.WithError(err).Error("failed to update stopped container state")
 					}
 					c.Unlock()
@@ -465,7 +468,7 @@ func (daemon *Daemon) restore() error {
 				// state and leave further processing up to them.
 				c.RemovalInProgress = false
 				c.Dead = true
-				if err := c.CheckpointTo(daemon.containersReplica); err != nil {
+				if err := c.CheckpointTo(context.Background(), daemon.containersReplica); err != nil {
 					log.WithError(err).Error("failed to update RemovalInProgress container state")
 				} else {
 					log.Debugf("reset RemovalInProgress state for container")
@@ -1443,7 +1446,7 @@ func CreateDaemonRoot(config *config.Config) error {
 func (daemon *Daemon) checkpointAndSave(container *container.Container) error {
 	container.Lock()
 	defer container.Unlock()
-	if err := container.CheckpointTo(daemon.containersReplica); err != nil {
+	if err := container.CheckpointTo(context.TODO(), daemon.containersReplica); err != nil {
 		return fmt.Errorf("Error saving container state: %v", err)
 	}
 	return nil

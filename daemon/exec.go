@@ -15,11 +15,13 @@ import (
 	"github.com/docker/docker/daemon/exec"
 	"github.com/docker/docker/errdefs"
 	"github.com/docker/docker/pkg/pools"
+	"github.com/moby/buildkit/util/tracing"
 	"github.com/moby/sys/signal"
 	"github.com/moby/term"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 // Seconds to wait after sending TERM before trying KILL
@@ -35,6 +37,10 @@ func (daemon *Daemon) registerExecCommand(container *container.Container, config
 // ExecExists looks up the exec instance and returns a bool if it exists or not.
 // It will also return the error produced by `getConfig`
 func (daemon *Daemon) ExecExists(ctx context.Context, name string) (bool, error) {
+	ctx, span := tracer.Start(ctx, "ExecExists")
+	defer span.End()
+	span.SetAttributes(attribute.String("docker.exec.instance", name))
+
 	if _, err := daemon.getExecConfig(name); err != nil {
 		return false, err
 	}
@@ -95,6 +101,9 @@ func (daemon *Daemon) getActiveContainer(ctx context.Context, name string) (*con
 
 // ContainerExecCreate sets up an exec in a running container.
 func (daemon *Daemon) ContainerExecCreate(ctx context.Context, name string, config *types.ExecConfig) (string, error) {
+	ctx, span := tracer.Start(ctx, "ContainerExecCreate")
+	defer span.End()
+
 	cntr, err := daemon.getActiveContainer(ctx, name)
 	if err != nil {
 		return "", err
@@ -156,6 +165,9 @@ func (daemon *Daemon) ContainerExecStart(ctx context.Context, name string, stdin
 		cStdout, cStderr io.Writer
 	)
 
+	ctx, span := tracer.Start(ctx, "ContainerExecStart")
+	defer span.End()
+
 	ec, err := daemon.getExecConfig(name)
 	if err != nil {
 		return err
@@ -179,7 +191,7 @@ func (daemon *Daemon) ContainerExecStart(ctx context.Context, name string, stdin
 	if c == nil {
 		return containerNotFound(ec.ContainerID)
 	}
-	logrus.Debugf("starting exec command %s in container %s", ec.ID, c.ID)
+	logrus.WithContext(ctx).Debugf("starting exec command %s in container %s", ec.ID, c.ID)
 	attributes := map[string]string{
 		"execID": ec.ID,
 	}
@@ -203,7 +215,7 @@ func (daemon *Daemon) ContainerExecStart(ctx context.Context, name string, stdin
 		r, w := io.Pipe()
 		go func() {
 			defer w.Close()
-			defer logrus.Debug("Closing buffered stdin pipe")
+			defer logrus.WithContext(ctx).Debug("Closing buffered stdin pipe")
 			pools.Copy(w, stdin)
 		}()
 		cStdin = r
@@ -280,9 +292,9 @@ func (daemon *Daemon) ContainerExecStart(ctx context.Context, name string, stdin
 	case <-ctx.Done():
 		// Must use a new context since the current context is done.
 		ctxErr := ctx.Err()
-		ctx := context.Background()
+		ctx := tracing.ContextWithSpanFromContext(context.Background(), ctx)
 
-		logrus.Debugf("Sending TERM signal to process %v in container %v", name, c.ID)
+		logrus.WithContext(ctx).Debugf("Sending TERM signal to process %v in container %v", name, c.ID)
 		daemon.containerd.SignalProcess(ctx, c.ID, name, int(signal.SignalMap["TERM"]))
 
 		timeout := time.NewTimer(termProcessTimeout)
@@ -290,7 +302,7 @@ func (daemon *Daemon) ContainerExecStart(ctx context.Context, name string, stdin
 
 		select {
 		case <-timeout.C:
-			logrus.Infof("Container %v, process %v failed to exit within %v of signal TERM - using the force", c.ID, name, termProcessTimeout)
+			logrus.WithContext(ctx).Infof("Container %v, process %v failed to exit within %v of signal TERM - using the force", c.ID, name, termProcessTimeout)
 			daemon.containerd.SignalProcess(ctx, c.ID, name, int(signal.SignalMap["KILL"]))
 		case <-attachErr:
 			// TERM signal worked

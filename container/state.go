@@ -37,6 +37,10 @@ type State struct {
 	waitRemove chan struct{}
 }
 
+func (s *State) Lock() {
+	s.Mutex.Lock()
+}
+
 // StateStatus is used to return container wait results.
 // Implements exec.ExitCode interface.
 // This type is needed as State include a sync.Mutex field which make

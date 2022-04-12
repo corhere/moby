@@ -47,7 +47,7 @@ func (daemon *Daemon) containerPause(ctx context.Context, container *container.C
 	daemon.updateHealthMonitor(container)
 	daemon.LogContainerEvent(container, "pause")
 
-	if err := container.CheckpointTo(daemon.containersReplica); err != nil {
+	if err := container.CheckpointTo(ctx, daemon.containersReplica); err != nil {
 		logrus.WithError(err).Warn("could not save container to disk")
 	}
 
