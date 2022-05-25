@@ -1,14 +1,21 @@
 package container // import "github.com/docker/docker/integration/container"
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"io"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/daemon/logger/jsonfilelog"
+	"github.com/docker/docker/daemon/logger/local"
 	"github.com/docker/docker/integration/internal/container"
 	"github.com/docker/docker/pkg/stdcopy"
 	"gotest.tools/v3/assert"
+	"gotest.tools/v3/poll"
 	"gotest.tools/v3/skip"
 )
 
@@ -31,4 +38,164 @@ func TestLogsFollowTailEmpty(t *testing.T) {
 
 	_, err = stdcopy.StdCopy(io.Discard, io.Discard, logs)
 	assert.Check(t, err)
+}
+
+func TestLogs(t *testing.T) {
+	drivers := []string{local.Name, jsonfilelog.Name}
+
+	for _, logDriver := range drivers {
+		t.Run("driver "+logDriver, func(t *testing.T) {
+			testLogs(t, logDriver)
+		})
+	}
+}
+
+func testLogs(t *testing.T, logDriver string) {
+	defer setupTest(t)()
+	client := testEnv.APIClient()
+	ctx := context.Background()
+
+	testCases := []struct {
+		desc        string
+		logOps      types.ContainerLogsOptions
+		expectedOut string
+		expectedErr string
+		tty         bool
+	}{
+		// TTY, only one output streamś
+		{
+			desc: "tty/stdout and stderr",
+			tty:  true,
+			logOps: types.ContainerLogsOptions{
+				ShowStdout: true,
+				ShowStderr: true,
+			},
+			expectedOut: "this is fineaccidents happen",
+		},
+		{
+			desc: "tty/only stdout",
+			tty:  true,
+			logOps: types.ContainerLogsOptions{
+				ShowStdout: true,
+				ShowStderr: false,
+			},
+			expectedOut: "this is fineaccidents happen",
+		},
+		{
+			desc: "tty/only stderr",
+			tty:  true,
+			logOps: types.ContainerLogsOptions{
+				ShowStdout: false,
+				ShowStderr: true,
+			},
+			expectedOut: "",
+		},
+		// Without TTY, both stdout and stderrś
+		{
+			desc: "without tty/stdout and stderr",
+			tty:  false,
+			logOps: types.ContainerLogsOptions{
+				ShowStdout: true,
+				ShowStderr: true,
+			},
+			expectedOut: "this is fine",
+			expectedErr: "accidents happen",
+		},
+		{
+			desc: "without tty/only stdout",
+			tty:  false,
+			logOps: types.ContainerLogsOptions{
+				ShowStdout: true,
+				ShowStderr: false,
+			},
+			expectedOut: "this is fine",
+			expectedErr: "",
+		},
+		{
+			desc: "without tty/only stderr",
+			tty:  false,
+			logOps: types.ContainerLogsOptions{
+				ShowStdout: false,
+				ShowStderr: true,
+			},
+			expectedOut: "",
+			expectedErr: "accidents happen",
+		},
+	}
+
+	for _, tC := range testCases {
+		tC := tC
+		t.Run(tC.desc, func(t *testing.T) {
+			t.Parallel()
+			tty := tC.tty
+			id := container.Run(ctx, t, client,
+				container.WithCmd("sh", "-c", "echo -n this is fine; echo -n accidents happen >&2"),
+				container.WithTty(tty),
+				container.WithLogDriver(logDriver),
+			)
+			defer client.ContainerRemove(ctx, id, types.ContainerRemoveOptions{Force: true})
+
+			poll.WaitOn(t, container.IsStopped(ctx, client, id), poll.WithDelay(time.Millisecond*100))
+
+			logs, err := client.ContainerLogs(ctx, id, tC.logOps)
+			assert.NilError(t, err)
+			defer logs.Close()
+
+			var stdout, stderr bytes.Buffer
+			if tty {
+				// TTY, only one output stream
+				_, err = io.Copy(&stdout, logs)
+			} else {
+				_, err = stdcopy.StdCopy(&stdout, &stderr, logs)
+			}
+			assert.NilError(t, err)
+
+			stdoutStr := stdout.String()
+			if tty && testEnv.OSType == "windows" {
+				stdoutStr = stripEscapeCodes(t, stdoutStr)
+			}
+			assert.DeepEqual(t, stdoutStr, tC.expectedOut)
+			assert.DeepEqual(t, stderr.String(), tC.expectedErr)
+		})
+	}
+}
+
+// This hack strips the escape codes that appear in the Windows TTY output and don't have
+// any effect on the text content.
+// This doesn't handle all escape sequences, only ones that were encountered during testing.
+func stripEscapeCodes(t *testing.T, input string) string {
+	knownEscapes := []string{
+		"\x1b[2J",                        // Erase screen
+		"\x1b[m",                         // Reset color
+		"\b\x1b]0;C:\\bin\\sh.exe\a",     // Set window title
+		"\b\x1b]0;C:\\bin\\sh.exe\x00\a", // Set window title
+		"\x1b]0;C:\\bin\\sh.exe\a",       // Set window title
+		"\x1b[?25h",                      // Show cursor
+		"\x1b[?25l",                      // Hide cursor
+		"\x1b[1;29H",                     // Move to the first line
+		" \b",                            // Space followed by backspace
+		"\a",                             // Bell
+	}
+
+	t.Logf("Stripping: %q\n", input)
+	output := input
+	for _, escape := range knownEscapes {
+		output = strings.ReplaceAll(output, escape, "")
+	}
+
+	const moveCursorToBeginning = "\x1b[H"
+	// Remove all move cursor to beginning that are in the beginning (noop)
+	for strings.HasPrefix(output, moveCursorToBeginning) {
+		output = strings.TrimPrefix(output, moveCursorToBeginning)
+	}
+
+	// Remove all trailing moves that also output first letter of the string (noop)
+	if len(output) > 0 {
+		moveCursorToBeginningAndWriteFirstLetter := fmt.Sprintf("\x1b[H%c", output[0])
+		for strings.HasSuffix(output, moveCursorToBeginningAndWriteFirstLetter) {
+			output = strings.TrimSuffix(output, moveCursorToBeginningAndWriteFirstLetter)
+		}
+	}
+
+	return output
 }
