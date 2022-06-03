@@ -3,9 +3,7 @@ package container // import "github.com/docker/docker/integration/container"
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"io"
-	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +11,7 @@ import (
 	"github.com/docker/docker/daemon/logger/jsonfilelog"
 	"github.com/docker/docker/daemon/logger/local"
 	"github.com/docker/docker/integration/internal/container"
+	"github.com/docker/docker/integration/internal/termtest"
 	"github.com/docker/docker/pkg/stdcopy"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/poll"
@@ -164,38 +163,8 @@ func testLogs(t *testing.T, logDriver string) {
 // any effect on the text content.
 // This doesn't handle all escape sequences, only ones that were encountered during testing.
 func stripEscapeCodes(t *testing.T, input string) string {
-	knownEscapes := []string{
-		"\x1b[2J",                        // Erase screen
-		"\x1b[m",                         // Reset color
-		"\b\x1b]0;C:\\bin\\sh.exe\a",     // Set window title
-		"\b\x1b]0;C:\\bin\\sh.exe\x00\a", // Set window title
-		"\x1b]0;C:\\bin\\sh.exe\a",       // Set window title
-		"\x1b[?25h",                      // Show cursor
-		"\x1b[?25l",                      // Hide cursor
-		"\x1b[1;29H",                     // Move to the first line
-		" \b",                            // Space followed by backspace
-		"\a",                             // Bell
-	}
-
 	t.Logf("Stripping: %q\n", input)
-	output := input
-	for _, escape := range knownEscapes {
-		output = strings.ReplaceAll(output, escape, "")
-	}
-
-	const moveCursorToBeginning = "\x1b[H"
-	// Remove all move cursor to beginning that are in the beginning (noop)
-	for strings.HasPrefix(output, moveCursorToBeginning) {
-		output = strings.TrimPrefix(output, moveCursorToBeginning)
-	}
-
-	// Remove all trailing moves that also output first letter of the string (noop)
-	if len(output) > 0 {
-		moveCursorToBeginningAndWriteFirstLetter := fmt.Sprintf("\x1b[H%c", output[0])
-		for strings.HasSuffix(output, moveCursorToBeginningAndWriteFirstLetter) {
-			output = strings.TrimSuffix(output, moveCursorToBeginningAndWriteFirstLetter)
-		}
-	}
-
+	output, err := termtest.StripANSICommands(input)
+	assert.NilError(t, err)
 	return output
 }
