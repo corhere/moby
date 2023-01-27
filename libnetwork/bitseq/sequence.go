@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"github.com/docker/docker/libnetwork/bitmap"
 	"github.com/docker/docker/libnetwork/datastore"
@@ -28,6 +29,7 @@ type Handle struct {
 	dbExists bool
 	store    datastore.DataStore
 	bm       *bitmap.Bitmap
+	curr     atomic.Uint64 // Cursor position for serial SetAny operations.
 	mu       sync.Mutex
 }
 
@@ -72,12 +74,28 @@ func (h *Handle) getCopy() *Handle {
 
 // SetAnyInRange atomically sets the first unset bit in the specified range in the sequence and returns the corresponding ordinal
 func (h *Handle) SetAnyInRange(start, end uint64, serial bool) (uint64, error) {
-	return h.apply(func(b *bitmap.Bitmap) (uint64, error) { return b.SetAnyInRange(start, end, serial) })
+	opts := []bitmap.RangeOpt{bitmap.WithRange(start, end)}
+	if serial {
+		opts = append(opts, bitmap.WithInitialCursor(h.curr.Load()))
+	}
+	i, err := h.apply(func(b *bitmap.Bitmap) (uint64, error) { return b.SetAny(opts...) })
+	if err == nil {
+		h.curr.Store(i + 1)
+	}
+	return i, err
 }
 
 // SetAny atomically sets the first unset bit in the sequence and returns the corresponding ordinal
 func (h *Handle) SetAny(serial bool) (uint64, error) {
-	return h.apply(func(b *bitmap.Bitmap) (uint64, error) { return b.SetAny(serial) })
+	var opts []bitmap.RangeOpt
+	if serial {
+		opts = []bitmap.RangeOpt{bitmap.WithInitialCursor(h.curr.Load())}
+	}
+	i, err := h.apply(func(b *bitmap.Bitmap) (uint64, error) { return b.SetAny(opts...) })
+	if err == nil {
+		h.curr.Store(i + 1)
+	}
+	return i, err
 }
 
 // Set atomically sets the corresponding bit in the sequence

@@ -38,7 +38,6 @@ type Bitmap struct {
 	bits       uint64
 	unselected uint64
 	head       *sequence
-	curr       uint64
 
 	// Shallow copies would share the same head pointer but a copy of the
 	// unselected count. Mutating the sequence through one would change the
@@ -65,7 +64,6 @@ func Copy(b *Bitmap) *Bitmap {
 		bits:       b.bits,
 		unselected: b.unselected,
 		head:       b.head.getCopy(),
-		curr:       b.curr,
 	}
 }
 
@@ -176,31 +174,56 @@ func (s *sequence) fromByteArray(data []byte) error {
 	return nil
 }
 
-// SetAnyInRange sets the first unset bit in the range [start, end) and returns
-// the ordinal of the set bit.
+// RangeOpt modifies the behaviour of operations which are applied to a
+// contiguous range of bits in the bitmap.
+type RangeOpt func(*rangeOpCfg)
+
+type rangeOpCfg struct {
+	// Scan ordinals in the range [Start, End)
+	Start, End uint64
+	// Bitmap ordinal of the initial cursor position to start scanning from;
+	// not offset by Start
+	ProbeFrom uint64
+}
+
+// WithRange constrains the operation to only consider the range of ordinals
+// within [start, end).
+func WithRange(start, end uint64) RangeOpt {
+	return func(c *rangeOpCfg) {
+		c.Start = start
+		c.End = end
+	}
+}
+
+// WithInitialCursor configures the operation to start scanning the bitmap from
+// ordinal instead of from 0, with wraparound.
 //
-// When serial=true, the bitmap is scanned starting from the ordinal following
-// the bit most recently set by [Bitmap.SetAny] or [Bitmap.SetAnyInRange].
-func (h *Bitmap) SetAnyInRange(start, end uint64, serial bool) (uint64, error) {
-	if end < start || end >= h.bits {
-		return invalidPos, fmt.Errorf("invalid bit range [%d, %d)", start, end)
+// The ordinal can be outside the range of the bitmap or the operation, in which
+// case the operation will begin with the first in-range index greater than
+// ordinal (modulo bitmap length).
+func WithInitialCursor(ordinal uint64) RangeOpt {
+	return func(c *rangeOpCfg) {
+		c.ProbeFrom = ordinal
 	}
-	if h.Unselected() == 0 {
-		return invalidPos, ErrNoBitAvailable
-	}
-	return h.set(0, start, end, true, false, serial)
 }
 
 // SetAny sets the first unset bit in the sequence and returns the ordinal of
 // the set bit.
-//
-// When serial=true, the bitmap is scanned starting from the ordinal following
-// the bit most recently set by [Bitmap.SetAny] or [Bitmap.SetAnyInRange].
-func (h *Bitmap) SetAny(serial bool) (uint64, error) {
+func (h *Bitmap) SetAny(opts ...RangeOpt) (uint64, error) {
 	if h.Unselected() == 0 {
 		return invalidPos, ErrNoBitAvailable
 	}
-	return h.set(0, 0, h.bits-1, true, false, serial)
+
+	cfg := rangeOpCfg{End: h.bits - 1}
+	for _, o := range opts {
+		o(&cfg)
+	}
+
+	if cfg.End < cfg.Start || cfg.End >= h.bits {
+		return invalidPos, fmt.Errorf("invalid bit range [%d, %d)", cfg.Start, cfg.End)
+	}
+
+	return h.set(0, cfg.Start, cfg.End, true, false, cfg.ProbeFrom)
 }
 
 // Set atomically sets the corresponding bit in the sequence
@@ -208,7 +231,7 @@ func (h *Bitmap) Set(ordinal uint64) error {
 	if err := h.validateOrdinal(ordinal); err != nil {
 		return err
 	}
-	_, err := h.set(ordinal, 0, 0, false, false, false)
+	_, err := h.set(ordinal, 0, 0, false, false, 0)
 	return err
 }
 
@@ -217,7 +240,7 @@ func (h *Bitmap) Unset(ordinal uint64) error {
 	if err := h.validateOrdinal(ordinal); err != nil {
 		return err
 	}
-	_, err := h.set(ordinal, 0, 0, false, true, false)
+	_, err := h.set(ordinal, 0, 0, false, true, 0)
 	return err
 }
 
@@ -232,7 +255,7 @@ func (h *Bitmap) IsSet(ordinal uint64) bool {
 }
 
 // set/reset the bit
-func (h *Bitmap) set(ordinal, start, end uint64, any bool, release bool, serial bool) (uint64, error) {
+func (h *Bitmap) set(ordinal, start, end uint64, any bool, release bool, curr uint64) (uint64, error) {
 	var (
 		bitPos  uint64
 		bytePos uint64
@@ -240,10 +263,6 @@ func (h *Bitmap) set(ordinal, start, end uint64, any bool, release bool, serial 
 		err     error
 	)
 
-	curr := uint64(0)
-	if serial {
-		curr = h.curr
-	}
 	// Get position if available
 	if release {
 		bytePos, bitPos = ordinalToPos(ordinal)
@@ -251,9 +270,6 @@ func (h *Bitmap) set(ordinal, start, end uint64, any bool, release bool, serial 
 		if any {
 			bytePos, bitPos, err = getAvailableFromCurrent(h.head, start, curr, end)
 			ret = posToOrdinal(bytePos, bitPos)
-			if err == nil {
-				h.curr = ret + 1
-			}
 		} else {
 			bytePos, bitPos, err = checkIfAvailable(h.head, ordinal)
 			ret = ordinal
@@ -328,8 +344,8 @@ func (h *Bitmap) Unselected() uint64 {
 }
 
 func (h *Bitmap) String() string {
-	return fmt.Sprintf("Bits: %d, Unselected: %d, Sequence: %s Curr:%d",
-		h.bits, h.unselected, h.head.toString(), h.curr)
+	return fmt.Sprintf("Bits: %d, Unselected: %d, Sequence: %s",
+		h.bits, h.unselected, h.head.toString())
 }
 
 // MarshalJSON encodes h into a JSON message
