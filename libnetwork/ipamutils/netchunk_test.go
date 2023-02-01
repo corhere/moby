@@ -76,6 +76,30 @@ func BenchmarkChunkAllocate(b *testing.B) {
 	}
 }
 
+func BenchmarkPrefixOfIPv4(b *testing.B) {
+	chk, err := NewChunk(netip.MustParsePrefix("10.0.0.0/8"), 32)
+	assert.NilError(b, err)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		_ = chk.prefixOf(uint64(i))
+	}
+}
+
+func BenchmarkPrefixOfIPv6(b *testing.B) {
+	chk, err := NewChunk(netip.MustParsePrefix("fe80::/10"), 74)
+	assert.NilError(b, err)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		_ = chk.prefixOf(uint64(i))
+	}
+}
+
 func TestChunkRelease(t *testing.T) {
 	chk, err := NewChunk(netip.MustParsePrefix("fe80::/10"), 74)
 	assert.NilError(t, err)

@@ -1,10 +1,10 @@
 package ipamutils
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"math"
-	"math/big"
 	"net/netip"
 
 	"github.com/docker/docker/libnetwork/bitmap"
@@ -109,19 +109,17 @@ func (c *NetworkChunk) Release(p netip.Prefix) bool {
 
 // prefixOf returns c.base + (ordinal << c.subbits).
 func (c *NetworkChunk) prefixOf(ordinal uint64) netip.Prefix {
-	addend := new(big.Int).SetUint64(ordinal)
-	addend.Lsh(addend, uint(c.base.Addr().BitLen())-uint(c.subbits))
-
 	var netaddr netip.Addr
 	if c.base.Addr().Is4() {
 		a := c.base.Addr().As4()
-		addr := new(big.Int).SetBytes(a[:])
-		addr.Add(addr, addend).FillBytes(a[:])
+		addr := binary.BigEndian.Uint32(a[:])
+		addr += uint32(ordinal) << (uint(c.base.Addr().BitLen()) - uint(c.subbits))
+		binary.BigEndian.PutUint32(a[:], addr)
 		netaddr = netip.AddrFrom4(a)
 	} else {
+		addend := uint128From(ordinal).lsh(uint(c.base.Addr().BitLen()) - uint(c.subbits))
 		a := c.base.Addr().As16()
-		addr := new(big.Int).SetBytes(a[:])
-		addr.Add(addr, addend).FillBytes(a[:])
+		uint128From16(a).add(addend).fill16(&a)
 		netaddr = netip.AddrFrom16(a)
 	}
 	return netip.PrefixFrom(netaddr, int(c.subbits))
@@ -133,15 +131,6 @@ func (c *NetworkChunk) ordinalOf(p netip.Prefix) (ordinal uint64, ok bool) {
 		return 0, false
 	}
 	p = p.Masked()
-
-	var addr big.Int
-	if p.Addr().Is4() {
-		a := p.Addr().As4()
-		addr.SetBytes(a[:])
-	} else {
-		a := p.Addr().As16()
-		addr.SetBytes(a[:])
-	}
 
 	// Extract the subnet part of p as an integer.
 	// E.g. given c.base = 10.42.0.0/16 and c.subbits = 20,
@@ -156,15 +145,24 @@ func (c *NetworkChunk) ordinalOf(p netip.Prefix) (ordinal uint64, ok bool) {
 	// we want to extract the S bits as an integer.
 	// Clear P, then right-shift until S is in low order bits.
 
-	submask := big.NewInt(1)
-	submask.Lsh(submask, uint(c.base.Addr().BitLen()-c.base.Bits()))
-	submask.Sub(submask, big.NewInt(1))
-	addr.And(&addr, submask)
-	addr.Rsh(&addr, uint(p.Addr().BitLen()-p.Bits()))
+	if p.Addr().Is4() {
+		submask := (uint32(1) << (c.base.Addr().BitLen() - c.base.Bits())) - 1
+		a := p.Addr().As4()
+		addr := (binary.BigEndian.Uint32(a[:]) & submask) >> (uint32(p.Addr().BitLen()) - uint32(p.Bits()))
+		return uint64(addr), true
+	}
 
-	if !addr.IsUint64() {
+	a := p.Addr().As16()
+	addr := uint128From16(a)
+
+	submask := uint128From(1).
+		lsh(uint(c.base.Addr().BitLen() - c.base.Bits())).
+		sub64(1)
+	addr = addr.and(submask).rsh(uint(p.Addr().BitLen() - p.Bits()))
+
+	if !addr.isUint64() {
 		panic(fmt.Sprintf("bug: got out of range value %v for subnet ordinal", addr))
 	}
 
-	return addr.Uint64(), true
+	return addr.uint64(), true
 }
