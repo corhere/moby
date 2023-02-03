@@ -1,4 +1,4 @@
-package ipamutils
+package ipbits
 
 import (
 	"encoding/binary"
@@ -22,11 +22,6 @@ func (x uint128) add(y uint128) uint128 {
 	lo, carry := bits.Add64(x.lo, y.lo, 0)
 	hi, _ := bits.Add64(x.hi, y.hi, carry)
 	return uint128{hi: hi, lo: lo}
-}
-
-func (x uint128) sub64(y uint64) uint128 {
-	lo, borrow := bits.Sub64(x.lo, y, 0)
-	return uint128{hi: x.hi - borrow, lo: lo}
 }
 
 func (x uint128) lsh(n uint) uint128 {
@@ -53,13 +48,13 @@ func (x uint128) and(y uint128) uint128 {
 	return uint128{hi: x.hi & y.hi, lo: x.lo & y.lo}
 }
 
+func (x uint128) not() uint128 {
+	return uint128{hi: ^x.hi, lo: ^x.lo}
+}
+
 func (x uint128) fill16(a *[16]byte) {
 	binary.BigEndian.PutUint64(a[:8], x.hi)
 	binary.BigEndian.PutUint64(a[8:], x.lo)
-}
-
-func (x uint128) isUint64() bool {
-	return x.hi == 0
 }
 
 func (x uint128) uint64() uint64 {

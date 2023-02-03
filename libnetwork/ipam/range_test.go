@@ -1,4 +1,4 @@
-package ipamutils
+package ipam
 
 import (
 	"math"
@@ -9,7 +9,7 @@ import (
 	is "gotest.tools/v3/assert/cmp"
 )
 
-func TestNewChunk(t *testing.T) {
+func TestNewRange(t *testing.T) {
 	for _, tt := range []struct {
 		name       string
 		base       netip.Prefix
@@ -25,7 +25,7 @@ func TestNewChunk(t *testing.T) {
 		{name: "SingleHostNetwork/IPv6", base: netip.MustParsePrefix("fe80::/64"), subnetBits: 128},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := NewChunk(tt.base, tt.subnetBits)
+			_, err := NewRange(tt.base, tt.subnetBits)
 			if tt.expectErr {
 				assert.Check(t, is.ErrorContains(err, ""))
 			} else {
@@ -35,7 +35,7 @@ func TestNewChunk(t *testing.T) {
 	}
 }
 
-func TestChunkAllocate(t *testing.T) {
+func TestRangeAllocate(t *testing.T) {
 	for _, tt := range []struct {
 		name       string
 		base       netip.Prefix
@@ -45,74 +45,50 @@ func TestChunkAllocate(t *testing.T) {
 		{name: "IPv6", base: netip.MustParsePrefix("fe80::/10"), subnetBits: 14},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			chk, err := NewChunk(tt.base, tt.subnetBits)
+			r, err := NewRange(tt.base, tt.subnetBits)
 			assert.NilError(t, err)
 
 			for i := 0; i < 16; i++ {
-				p, n, ok := chk.Allocate()
+				p, n, ok := r.Allocate()
 				t.Log(p)
 				assert.Check(t, ok, "could not allocate network %d", i)
 				assert.Check(t, is.Equal(n, uint64(i)))
 			}
 
-			p, n, ok := chk.Allocate()
+			p, n, ok := r.Allocate()
 			assert.Check(t, !ok, "got unexpected allocation %v (ordinal=%v)", p, n)
 		})
 	}
 }
 
-func BenchmarkChunkAllocate(b *testing.B) {
-	chk, err := NewChunk(netip.MustParsePrefix("aaaa::/16"), 80)
+func BenchmarkRangeAllocate(b *testing.B) {
+	r, err := NewRange(netip.MustParsePrefix("aaaa::/16"), 80)
 	assert.NilError(b, err)
 
 	b.ReportAllocs()
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		_, _, ok := chk.Allocate()
+		_, _, ok := r.Allocate()
 		if !ok {
 			b.Fatal(i, b.N)
 		}
 	}
 }
 
-func BenchmarkPrefixOfIPv4(b *testing.B) {
-	chk, err := NewChunk(netip.MustParsePrefix("10.0.0.0/8"), 32)
-	assert.NilError(b, err)
-
-	b.ReportAllocs()
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
-		_ = chk.prefixOf(uint64(i))
-	}
-}
-
-func BenchmarkPrefixOfIPv6(b *testing.B) {
-	chk, err := NewChunk(netip.MustParsePrefix("fe80::/10"), 74)
-	assert.NilError(b, err)
-
-	b.ReportAllocs()
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
-		_ = chk.prefixOf(uint64(i))
-	}
-}
-
-func TestChunkRelease(t *testing.T) {
-	chk, err := NewChunk(netip.MustParsePrefix("fe80::/10"), 74)
+func TestRangeRelease(t *testing.T) {
+	r, err := NewRange(netip.MustParsePrefix("fe80::/10"), 74)
 	assert.NilError(t, err)
-	assert.Equal(t, chk.Len(), uint64(math.MaxUint64))
+	assert.Equal(t, r.Len(), uint64(math.MaxUint64))
 
-	_, _, ok := chk.Allocate()
+	_, _, ok := r.Allocate()
 	assert.Assert(t, ok)
 
-	p, n, ok := chk.Allocate()
+	p, n, ok := r.Allocate()
 	assert.Assert(t, ok)
 
-	assert.Check(t, chk.Release(p))
-	p2, n2, ok := chk.Allocate()
+	assert.Check(t, r.Release(p))
+	p2, n2, ok := r.Allocate()
 	assert.Check(t, ok)
 	assert.Equal(t, p, p2)
 	assert.Equal(t, n, n2)

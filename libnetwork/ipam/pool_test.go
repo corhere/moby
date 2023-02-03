@@ -1,4 +1,4 @@
-package ipamutils
+package ipam
 
 import (
 	"fmt"
@@ -6,6 +6,7 @@ import (
 	"net/netip"
 	"testing"
 
+	"github.com/docker/docker/libnetwork/ipamutils"
 	"gotest.tools/v3/assert"
 	is "gotest.tools/v3/assert/cmp"
 )
@@ -25,7 +26,7 @@ func TestNetworkPool(t *testing.T) {
 	t.Run("Len=1", func(t *testing.T) {
 		want := netip.MustParsePrefix("172.16.0.0/16")
 
-		pool, err := NewPool([]NetworkToSplit{{Base: want.String(), Size: want.Bits()}})
+		pool, err := NewPool([]ipamutils.NetworkToSplit{{Base: want.String(), Size: want.Bits()}})
 		assert.NilError(t, err)
 
 		got, ok := pool.Allocate()
@@ -45,7 +46,7 @@ func TestNetworkPool(t *testing.T) {
 		// NB: the last prefix in a chunk of 2**64 networks cannot be
 		// allocated because the length of the chunk is limited to
 		// MaxUint64, 2**64-1.
-		pool, err := NewPool([]NetworkToSplit{
+		pool, err := NewPool([]ipamutils.NetworkToSplit{
 			{Base: "aaaa::/16", Size: 80},
 			{Base: "bbbb::/16", Size: 80},
 		})
@@ -75,7 +76,7 @@ func TestNetworkPool(t *testing.T) {
 		}
 	})
 
-	for _, tt := range [][]NetworkToSplit{
+	for _, tt := range [][]ipamutils.NetworkToSplit{
 		{
 			{Base: "10.0.0.0/14", Size: 16},
 		},
