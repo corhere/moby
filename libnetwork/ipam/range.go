@@ -10,10 +10,8 @@ import (
 	"github.com/docker/docker/libnetwork/ipbits"
 )
 
-// A Range is a set of contiguous, equally-sized IP subnets with a common
-// network prefix that may be individually allocated and released.
-//
-// Range values are not safe for concurrent use.
+// A Range is an immutable set of contiguous, equally-sized IP subnets with a
+// common network prefix.
 type Range struct {
 	// Invariant: is in canonical form (base == base.Masked())
 	base netip.Prefix
@@ -22,8 +20,14 @@ type Range struct {
 	// Invariants:
 	//   base.Addr().BitLen() >= subbits >= base.Bits()
 	subbits uint8
+}
 
-	allocated *bitmap.Bitmap
+// A RangeAllocator tracks subnet allocations for a range.
+//
+// RangeAllocator values are not safe for concurrent use.
+type RangeAllocator struct {
+	r     Range
+	alloc *bitmap.Bitmap
 }
 
 var (
@@ -53,73 +57,44 @@ func NewRange(base netip.Prefix, bits int) (Range, error) {
 		return Range{}, fmt.Errorf("bits %v out of range for base prefix %v", bits, base)
 	}
 
-	// How many subnets can base be subdivided into? Saturating arithmetic.
-	lgn := bits - base.Bits() // log2(n)
-	var n uint64 = math.MaxUint64
-	if lgn < 64 {
-		n = 1 << lgn
-	}
-
 	return Range{
-		base:      base.Masked(),
-		subbits:   uint8(bits),
-		allocated: bitmap.New(n),
+		base:    base.Masked(),
+		subbits: uint8(bits),
 	}, nil
 }
 
 // Base returns the network prefix being subdivided.
-func (r *Range) Base() netip.Prefix {
+func (r Range) Base() netip.Prefix {
 	return r.base
 }
 
-// Len returns the total number of allocatable subnets.
-func (r *Range) Len() uint64 {
-	return r.allocated.Bits()
+// Len returns the total number of subnets in the range.
+//
+// [math.MaxUint64] is returned if there are more subnets than can be
+// represented in a uint64 value.
+func (r Range) Len() uint64 {
+	// How many subnets can base be subdivided into? Saturating arithmetic.
+	lgn := int(r.subbits) - r.base.Bits() // log2(n)
+	var n uint64 = math.MaxUint64
+	if lgn < 64 {
+		n = 1 << lgn
+	}
+	return n
 }
 
-// Allocate allocates and returns an available subnet, along with its ordinal
-// subnet ID.
+// Subnet returns the n'th subnet in the range.
 //
-// Allocate panics if opts specify an out-of-bounds range.
-func (r *Range) Allocate(opts ...bitmap.RangeOpt) (prefix netip.Prefix, ordinal uint64, ok bool) {
-	n, err := r.allocated.SetAny(opts...)
-	if err != nil {
-		if errors.Is(err, bitmap.ErrNoBitAvailable) {
-			return netip.Prefix{}, 0, false
-		}
-		panic(err)
+// It returns the zero [netip.Prefix] if n >= r.Len().
+func (r Range) Subnet(n uint64) netip.Prefix {
+	if n >= r.Len() {
+		return netip.Prefix{}
 	}
-
-	return r.subnet(n), n, true
-}
-
-// Release marks p as available for future allocations. It returns whether p is
-// a member of the range, irrespective of its allocation status.
-//
-// Release is idempotent: releasing an already-released subnet is not an error.
-//
-// Only prefixes which were allocated from the range may be released back to the
-// same range. Attempting to release other prefixes has no effect. Release cannot
-// be used to append new subnets to the range.
-func (r *Range) Release(p netip.Prefix) bool {
-	n, ok := r.subnetID(p)
-	if !ok {
-		return false
-	}
-	if err := r.allocated.Unset(n); err != nil {
-		panic(err)
-	}
-	return true
-}
-
-// subnet returns the subnet of c.base with a subnet ID of ordinal.
-func (r *Range) subnet(ordinal uint64) netip.Prefix {
 	shift := uint(r.base.Addr().BitLen()) - uint(r.subbits)
-	return netip.PrefixFrom(ipbits.Add(r.base.Masked().Addr(), ordinal, shift), int(r.subbits))
+	return netip.PrefixFrom(ipbits.Add(r.base.Masked().Addr(), n, shift), int(r.subbits))
 }
 
-// subnetID returns the ordinal for which s.subnet(ordinal) == p.
-func (r *Range) subnetID(p netip.Prefix) (ordinal uint64, ok bool) {
+// subnetID returns the ordinal n for which r.Subnet(n) == p.
+func (r Range) SubnetID(p netip.Prefix) (ordinal uint64, ok bool) {
 	if !p.IsValid() || p.Bits() != int(r.subbits) || !r.base.Overlaps(p) {
 		return 0, false
 	}
@@ -137,4 +112,52 @@ func (r *Range) subnetID(p netip.Prefix) (ordinal uint64, ok bool) {
 	// we want to extract the S bits.
 
 	return ipbits.Field(p.Masked().Addr(), uint(r.base.Bits()), uint(p.Bits())), true
+}
+
+// Allocator returns a new RangeAllocator for the subnets in the range.
+func (r Range) Allocator() RangeAllocator {
+	return RangeAllocator{
+		r:     r,
+		alloc: bitmap.New(r.Len()),
+	}
+}
+
+// Len returns the total number of allocatable subnets.
+func (a RangeAllocator) Len() uint64 {
+	return a.alloc.Bits()
+}
+
+// Allocate allocates and returns an available subnet, along with its ordinal
+// subnet ID.
+//
+// Allocate panics if opts specify an out-of-bounds range.
+func (a *RangeAllocator) Allocate(opts ...bitmap.RangeOpt) (prefix netip.Prefix, ordinal uint64, ok bool) {
+	n, err := a.alloc.SetAny(opts...)
+	if err != nil {
+		if errors.Is(err, bitmap.ErrNoBitAvailable) {
+			return netip.Prefix{}, 0, false
+		}
+		panic(err)
+	}
+
+	return a.r.Subnet(n), n, true
+}
+
+// Release marks p as available for future allocations. It returns whether p is
+// a member of the range, irrespective of its allocation status.
+//
+// Release is idempotent: releasing an already-released subnet is not an error.
+//
+// Only prefixes which were allocated from the range may be released back to the
+// same range. Attempting to release other prefixes has no effect. Release cannot
+// be used to append new subnets to the range.
+func (a *RangeAllocator) Release(p netip.Prefix) bool {
+	n, ok := a.r.SubnetID(p)
+	if !ok {
+		return false
+	}
+	if err := a.alloc.Unset(n); err != nil {
+		panic(err)
+	}
+	return true
 }

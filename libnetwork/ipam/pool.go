@@ -5,7 +5,6 @@ import (
 	"net/netip"
 
 	"github.com/docker/docker/libnetwork/bitmap"
-	"github.com/docker/docker/libnetwork/ipamutils"
 )
 
 // A Pool is a set of IP network prefixes that may be individually allocated and
@@ -13,32 +12,25 @@ import (
 //
 // Pool values are not safe for concurrent use.
 type Pool struct {
-	ranges      []Range
+	ranges      []RangeAllocator
 	nextRange   int    // index into ranges to allocate the next network.
 	nextOrdinal uint64 // ordinal in nextRange to start allocating the next network from.
 }
 
-// NewPool returns a new pool containing the set of network prefixes described
-// by nets. The base network prefixes must not overlap.
-func NewPool(nets []ipamutils.NetworkToSplit) (*Pool, error) {
-	ranges := make([]Range, len(nets))
-	for i, n := range nets {
-		base, err := netip.ParsePrefix(n.Base)
-		if err != nil {
-			return nil, fmt.Errorf("invalid base network prefix at index %v: %w", i, err)
-		}
+// NewPool returns a new pool which will allocate subnets from the given set of
+// network ranges. The base network prefixes of the ranges must not overlap.
+func NewPool(ranges []Range) (*Pool, error) {
+	allocs := make([]RangeAllocator, len(ranges))
+	for i, n := range ranges {
 		for _, r := range ranges[:i] {
-			if base.Overlaps(r.Base()) {
-				return nil, fmt.Errorf("base network prefix %v overlaps %v", base, r.Base())
+			if n.Base().Overlaps(r.Base()) {
+				return nil, fmt.Errorf("base network prefix %v overlaps %v", n.Base(), r.Base())
 			}
 		}
-		ranges[i], err = NewRange(base, n.Size)
-		if err != nil {
-			return nil, fmt.Errorf("invalid size at index %v: %w", i, err)
-		}
+		allocs[i] = n.Allocator()
 	}
 
-	return &Pool{ranges: ranges}, nil
+	return &Pool{ranges: allocs}, nil
 }
 
 // Allocate allocates an available network prefix from the pool.

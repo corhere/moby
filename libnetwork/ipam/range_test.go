@@ -47,15 +47,16 @@ func TestRangeAllocate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			r, err := NewRange(tt.base, tt.subnetBits)
 			assert.NilError(t, err)
+			a := r.Allocator()
 
 			for i := 0; i < 16; i++ {
-				p, n, ok := r.Allocate()
+				p, n, ok := a.Allocate()
 				t.Log(p)
 				assert.Check(t, ok, "could not allocate network %d", i)
 				assert.Check(t, is.Equal(n, uint64(i)))
 			}
 
-			p, n, ok := r.Allocate()
+			p, n, ok := a.Allocate()
 			assert.Check(t, !ok, "got unexpected allocation %v (ordinal=%v)", p, n)
 		})
 	}
@@ -64,12 +65,13 @@ func TestRangeAllocate(t *testing.T) {
 func BenchmarkRangeAllocate(b *testing.B) {
 	r, err := NewRange(netip.MustParsePrefix("aaaa::/16"), 80)
 	assert.NilError(b, err)
+	a := r.Allocator()
 
 	b.ReportAllocs()
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		_, _, ok := r.Allocate()
+		_, _, ok := a.Allocate()
 		if !ok {
 			b.Fatal(i, b.N)
 		}
@@ -80,15 +82,16 @@ func TestRangeRelease(t *testing.T) {
 	r, err := NewRange(netip.MustParsePrefix("fe80::/10"), 74)
 	assert.NilError(t, err)
 	assert.Equal(t, r.Len(), uint64(math.MaxUint64))
+	a := r.Allocator()
 
-	_, _, ok := r.Allocate()
+	_, _, ok := a.Allocate()
 	assert.Assert(t, ok)
 
-	p, n, ok := r.Allocate()
+	p, n, ok := a.Allocate()
 	assert.Assert(t, ok)
 
-	assert.Check(t, r.Release(p))
-	p2, n2, ok := r.Allocate()
+	assert.Check(t, a.Release(p))
+	p2, n2, ok := a.Allocate()
 	assert.Check(t, ok)
 	assert.Equal(t, p, p2)
 	assert.Equal(t, n, n2)
