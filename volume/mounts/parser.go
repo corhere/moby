@@ -11,6 +11,14 @@ import (
 // It's used by both LCOW and Linux parsers.
 var ErrVolumeTargetIsRoot = errors.New("invalid specification: destination can't be '/'")
 
+// ErrAnonymousVolumeWithSubpath is returned when Subpath is specified for
+// anonymous volume.
+var ErrAnonymousVolumeWithSubpath = errors.New("must not set Subpath when using anonymous volumes")
+
+// ErrInvalidSubpath is returned when the provided Subpath is not lexically an
+// relative path within volume.
+var ErrInvalidSubpath = errors.New("subpath must be a relative path within the volume")
+
 // read-write modes
 var rwModes = map[string]bool{
 	"rw": true,

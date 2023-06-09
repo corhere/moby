@@ -47,6 +47,8 @@ keywords: "API, Docker, rcli, REST, documentation"
   1.44.
 * `POST /containers/create` now accepts multiple `EndpointSettings` in
   `NetworkingConfig.EndpointSettings`.
+* `POST /containers/create` now supports `VolumeOptions.Subpath` which allows a
+  subpath of a named volume to be mounted.
 
 ## v1.43 API changes
 

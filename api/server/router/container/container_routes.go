@@ -605,6 +605,9 @@ func (s *containerRouter) postContainersCreate(ctx context.Context, w http.Respo
 					return errdefs.InvalidParameter(errors.New("BindOptions.ReadOnlyForceRecursive needs API v1.44 or newer"))
 				}
 			}
+			if m.VolumeOptions != nil && m.VolumeOptions.Subpath != "" {
+				return errdefs.InvalidParameter(errors.New("VolumeOptions.Subpath needs API v1.44 or newer"))
+			}
 		}
 	}
 

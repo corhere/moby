@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
@@ -258,7 +259,19 @@ func (p *windowsParser) validateMountConfigReg(mnt *mount.Mount, additionalValid
 			return &errMountConfig{mnt, errExtraField("BindOptions")}
 		}
 
-		if len(mnt.Source) == 0 && mnt.ReadOnly {
+		anonymousVolume := len(mnt.Source) == 0
+		if mnt.VolumeOptions != nil && mnt.VolumeOptions.Subpath != "" {
+			if anonymousVolume {
+				return &errMountConfig{mnt, fmt.Errorf("must not set Path when using anonymous volumes")}
+			}
+
+			// Check if path is relative but without any back traversals
+			if !filepath.IsLocal(mnt.VolumeOptions.Subpath) {
+				return &errMountConfig{mnt, ErrInvalidSubpath}
+			}
+		}
+
+		if anonymousVolume && mnt.ReadOnly {
 			return &errMountConfig{mnt, fmt.Errorf("must not set ReadOnly mode when using anonymous volumes")}
 		}
 

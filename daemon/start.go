@@ -163,10 +163,11 @@ func (daemon *Daemon) containerStart(ctx context.Context, daemonCfg *configStore
 		return err
 	}
 
-	if m, err := daemon.setupMounts(container); err != nil {
+	if m, cleanup, err := daemon.setupMounts(container); err != nil {
 		return err
 	} else {
 		mnts = append(mnts, m...)
+		defer cleanup()
 	}
 
 	spec, err := daemon.createSpec(ctx, daemonCfg, container, mnts)
