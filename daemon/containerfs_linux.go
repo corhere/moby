@@ -63,14 +63,14 @@ func (daemon *Daemon) openContainerFS(container *container.Container) (_ *contai
 		}
 	}()
 
-	mounts, cleanup, err := daemon.setupMounts(container)
+	mounts, cleanup, err := daemon.setupMounts(context.TODO(), container)
 	if err != nil {
 		return nil, err
 	}
 	defer func() {
-		cleanup()
+		cleanup(context.TODO())
 		if err != nil {
-			_ = container.UnmountVolumes(daemon.LogVolumeEvent)
+			_ = container.UnmountVolumes(context.TODO(), daemon.LogVolumeEvent)
 		}
 	}()
 
@@ -208,7 +208,7 @@ func (vw *containerFSView) Close() error {
 	runtime.SetFinalizer(vw, nil)
 	close(vw.todo)
 	err := multierror.Append(nil, <-vw.done)
-	err = multierror.Append(err, vw.ctr.UnmountVolumes(vw.d.LogVolumeEvent))
+	err = multierror.Append(err, vw.ctr.UnmountVolumes(context.TODO(), vw.d.LogVolumeEvent))
 	err = multierror.Append(err, vw.d.Unmount(vw.ctr))
 	return err.ErrorOrNil()
 }

@@ -19,7 +19,7 @@ import (
 // The path is safe (the path target won't change) until a returned SafePath
 // is Closed.
 // Caller is responsible for calling the Close function which unlocks the path.
-func Join(path, subpath string) (*SafePath, error) {
+func Join(ctx context.Context, path, subpath string) (*SafePath, error) {
 	base, subpart, err := evaluatePath(path, subpath)
 	if err != nil {
 		return nil, err
@@ -28,8 +28,8 @@ func Join(path, subpath string) (*SafePath, error) {
 
 	cleanups := cleanups.Composite{}
 	defer func() {
-		if cErr := cleanups.Call(); cErr != nil {
-			log.G(context.TODO()).WithError(cErr).Warn("failed to close handles after error")
+		if cErr := cleanups.Call(ctx); cErr != nil {
+			log.G(ctx).WithError(cErr).Warn("failed to close handles after error")
 		}
 	}()
 
@@ -44,7 +44,7 @@ func Join(path, subpath string) (*SafePath, error) {
 			}
 			return nil, errors.Wrapf(err, "failed to lock file %s", fullPath)
 		}
-		cleanups.Add(func() error {
+		cleanups.Add(func(context.Context) error {
 			return windows.CloseHandle(handle)
 		})
 
