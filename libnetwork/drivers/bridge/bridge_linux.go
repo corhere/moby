@@ -1065,9 +1065,14 @@ func (d *driver) CreateEndpoint(nid, eid string, ifInfo driverapi.InterfaceInfo,
 	endpoint.addr = ifInfo.Address()
 	endpoint.addrv6 = ifInfo.AddressIPv6()
 
-	// Set the sbox's MAC if not provided. If specified, use the one configured by user, otherwise generate one based on IP.
+	// Set the sbox's MAC if not provided. If specified, use the one configured by user, otherwise generate one randomly.
 	if endpoint.macAddress == nil {
-		endpoint.macAddress = electMacAddress(epConfig, endpoint.addr.IP)
+		if epConfig != nil {
+			endpoint.macAddress = epConfig.MacAddress
+		}
+		if endpoint.macAddress == nil {
+			endpoint.macAddress = netutils.GenerateRandomMAC()
+		}
 		if err = ifInfo.SetMacAddress(endpoint.macAddress); err != nil {
 			return err
 		}
@@ -1527,11 +1532,4 @@ func parseConnectivityOptions(cOptions map[string]interface{}) (*connectivityCon
 	}
 
 	return cc, nil
-}
-
-func electMacAddress(epConfig *endpointConfiguration, ip net.IP) net.HardwareAddr {
-	if epConfig != nil && epConfig.MacAddress != nil {
-		return epConfig.MacAddress
-	}
-	return netutils.GenerateMACFromIP(ip)
 }
