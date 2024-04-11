@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/containerd/log"
 	"github.com/docker/docker/libnetwork/driverapi"
+	"github.com/docker/docker/libnetwork/drivers/overlay/garp"
 	"github.com/docker/docker/libnetwork/drivers/overlay/overlayutils"
 	"github.com/docker/docker/libnetwork/internal/netiputil"
 	"github.com/docker/docker/libnetwork/netlabel"
@@ -44,6 +46,7 @@ type subnet struct {
 	initErr   error
 	subnetIP  netip.Prefix
 	gwIP      netip.Prefix
+	garp      *garp.Socket
 }
 
 type network struct {
@@ -312,6 +315,14 @@ func (n *network) leaveSandbox() {
 // to be called while holding network lock
 func (n *network) destroySandbox() {
 	if n.sbox != nil {
+		// Close the gARP sockets bound to the interfaces we are about to destroy.
+		for _, s := range n.subnets {
+			if s.garp != nil {
+				s.garp.Close()
+				s.garp = nil
+			}
+		}
+
 		for _, iface := range n.sbox.Interfaces() {
 			if err := iface.Remove(); err != nil {
 				log.G(context.TODO()).Debugf("Remove interface %s failed: %v", iface.SrcName(), err)
@@ -539,6 +550,19 @@ func (n *network) initSubnetSandbox(s *subnet) error {
 
 	s.vxlanName = vxlanName
 	s.brName = brName
+
+	var err error
+	n.sbox.InvokeFunc(func() {
+		var ifi *net.Interface
+		ifi, err = net.InterfaceByName(brName)
+		if err != nil {
+			return
+		}
+		s.garp, err = garp.Dial(ifi)
+	})
+	if err != nil {
+		return fmt.Errorf("could not open gARP socket for subnet %q: %w", s.subnetIP.String(), err)
+	}
 
 	return nil
 }

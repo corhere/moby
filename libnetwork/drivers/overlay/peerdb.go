@@ -299,6 +299,30 @@ func (d *driver) peerAddOp(nid, eid string, peerIP netip.Prefix, peerMac net.Har
 		return fmt.Errorf("could not add fdb entry for nid:%s eid:%s into the sandbox:%v", nid, eid, err)
 	}
 
+	// The 'proxy' feature of the Linux VXLAN network driver
+	// is somewhat braindead.
+	// It drops all ARP/ND packets transmitted to the vxlan interface
+	// instead of encapsulating them.
+	// If the dropped packet is a request
+	// and a neighbor table entry for the request's target IP
+	// is present on the vxlan interface,
+	// the driver will generate a proxy ARP/ND reply locally.
+	// Consequently, any ARP/ND announcements broadcast
+	// from a container endpoint's link
+	// will only reach the container's local peers.
+	// We have to proxy the announcements from userspace
+	// in order to update stale ARP/ND cache entries in remote peers.
+	// The VXLAN interface will receive the announcement
+	// and generate a unicast reply.
+	// This reply is not a complete waste of cycles:
+	// it teaches the bridge that segments addressed to the remote peer's MAC
+	// should be forwarded to the VXLAN interface's port.
+	if err := s.garp.Announce(peerIP.Addr(), peerMac); err != nil {
+		// Best-effort. The peers will figure out that their neighbor
+		// table entries are stale and recover within a few seconds.
+		log.G(context.TODO()).Warnf("could not announce remote neighbor %s to local peers on nid:%s: %v", peerIP, nid, err)
+	}
+
 	return nil
 }
 
