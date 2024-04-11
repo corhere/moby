@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"os"
 
 	"github.com/containerd/log"
@@ -19,7 +20,7 @@ type neigh struct {
 // DeleteNeighbor deletes neighbor entry from the sandbox.
 //
 // The options must exactly match the options passed into AddNeighbor.
-func (n *Namespace) DeleteNeighbor(dstIP net.IP, dstMac net.HardwareAddr, options ...NeighOption) error {
+func (n *Namespace) DeleteNeighbor(dstIP netip.Addr, dstMac net.HardwareAddr, options ...NeighOption) error {
 	n.mu.Lock()
 	nlh := n.nlHandle
 	n.mu.Unlock()
@@ -28,7 +29,7 @@ func (n *Namespace) DeleteNeighbor(dstIP net.IP, dstMac net.HardwareAddr, option
 	if err != nil {
 		return err
 	}
-	nlnh.IP = dstIP
+	nlnh.IP = dstIP.AsSlice()
 	nlnh.State = netlink.NUD_PERMANENT
 	if nlnh.Family > 0 {
 		nlnh.HardwareAddr = dstMac
@@ -46,7 +47,7 @@ func (n *Namespace) DeleteNeighbor(dstIP net.IP, dstMac net.HardwareAddr, option
 	if nlnh.Family > 0 {
 		if err := nlh.NeighDel(&netlink.Neigh{
 			LinkIndex:    nlnh.LinkIndex,
-			IP:           dstIP,
+			IP:           dstIP.AsSlice(),
 			Family:       nlnh.Family,
 			HardwareAddr: dstMac,
 			Flags:        netlink.NTF_MASTER,
@@ -61,7 +62,7 @@ func (n *Namespace) DeleteNeighbor(dstIP net.IP, dstMac net.HardwareAddr, option
 }
 
 // AddNeighbor adds a neighbor entry into the sandbox.
-func (n *Namespace) AddNeighbor(dstIP net.IP, dstMac net.HardwareAddr, options ...NeighOption) error {
+func (n *Namespace) AddNeighbor(dstIP netip.Addr, dstMac net.HardwareAddr, options ...NeighOption) error {
 	n.mu.Lock()
 	nlh := n.nlHandle
 	n.mu.Unlock()
@@ -70,7 +71,7 @@ func (n *Namespace) AddNeighbor(dstIP net.IP, dstMac net.HardwareAddr, options .
 	if err != nil {
 		return err
 	}
-	nlnh.IP = dstIP
+	nlnh.IP = dstIP.AsSlice()
 	nlnh.HardwareAddr = dstMac
 	nlnh.State = netlink.NUD_PERMANENT
 	if nlnh.Family > 0 {
