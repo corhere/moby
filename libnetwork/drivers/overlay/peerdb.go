@@ -276,10 +276,9 @@ func (d *driver) peerAddOp(nid, eid string, peerIP net.IP, peerIPMask net.IPMask
 		return err
 	}
 
-	var dbEntries int
 	var inserted bool
 	if updateDB {
-		inserted, dbEntries = d.peerDbAdd(nid, eid, peerIP, peerIPMask, peerMac, vtep, localPeer)
+		inserted, _ = d.peerDbAdd(nid, eid, peerIP, peerIPMask, peerMac, vtep, localPeer)
 		if !inserted {
 			log.G(context.TODO()).Warnf("Entry already present in db: nid:%s eid:%s peerIP:%v peerMac:%v isLocal:%t vtep:%v",
 				nid, eid, peerIP, peerMac, localPeer, vtep)
@@ -324,12 +323,6 @@ func (d *driver) peerAddOp(nid, eid string, peerIP net.IP, peerIPMask net.IPMask
 
 	// Add neighbor entry for the peer IP
 	if err := sbox.AddNeighbor(peerIP, peerMac, osl.WithLinkName(s.vxlanName)); err != nil {
-		if _, ok := err.(osl.NeighborSearchError); ok && dbEntries > 1 {
-			// We are in the transient case so only the first configuration is programmed into the kernel
-			// Upon deletion if the active configuration is deleted the next one from the database will be restored
-			// Note we are skipping also the next configuration
-			return nil
-		}
 		return fmt.Errorf("could not add neighbor entry for nid:%s eid:%s into the sandbox:%v", nid, eid, err)
 	}
 
@@ -377,18 +370,21 @@ func (d *driver) peerDeleteOp(nid, eid string, peerIP net.IP, peerIPMask net.IPM
 
 	// Local peers do not have any local configuration to delete
 	if !localPeer {
+		IP := &net.IPNet{
+			IP:   peerIP,
+			Mask: peerIPMask,
+		}
+		s := n.getSubnetforIP(IP)
+		if s == nil {
+			return fmt.Errorf("couldn't find the subnet %q in network %q", IP.String(), n.id)
+		}
 		// Remove fdb entry to the bridge for the peer mac
-		if err := sbox.DeleteNeighbor(vtep, peerMac); err != nil {
-			if _, ok := err.(osl.NeighborSearchError); ok && dbEntries > 0 {
-				// We fall in here if there is a transient state and if the neighbor that is being deleted
-				// was never been configured into the kernel (we allow only 1 configuration at the time per <ip,mac> mapping)
-				return nil
-			}
+		if err := sbox.DeleteNeighbor(vtep, peerMac, osl.WithLinkName(s.vxlanName), osl.WithFamily(syscall.AF_BRIDGE)); err != nil {
 			return fmt.Errorf("could not delete fdb entry for nid:%s eid:%s into the sandbox:%v", nid, eid, err)
 		}
 
 		// Delete neighbor entry for the peer IP
-		if err := sbox.DeleteNeighbor(peerIP, peerMac); err != nil {
+		if err := sbox.DeleteNeighbor(peerIP, peerMac, osl.WithLinkName(s.vxlanName)); err != nil {
 			return fmt.Errorf("could not delete neighbor entry for nid:%s eid:%s into the sandbox:%v", nid, eid, err)
 		}
 	}

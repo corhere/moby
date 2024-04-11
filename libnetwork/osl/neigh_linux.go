@@ -1,7 +1,6 @@
 package osl
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -12,66 +11,26 @@ import (
 	"github.com/vishvananda/netlink"
 )
 
-// NeighborSearchError indicates that the neighbor is already present
-type NeighborSearchError struct {
-	ip      net.IP
-	mac     net.HardwareAddr
-	present bool
-}
-
-func (n NeighborSearchError) Error() string {
-	return fmt.Sprintf("Search neighbor failed for IP %v, mac %v, present in db:%t", n.ip, n.mac, n.present)
-}
-
 type neigh struct {
-	dstIP    net.IP
-	dstMac   net.HardwareAddr
 	linkName string
-	linkDst  string
 	family   int
 }
 
-func (n *Namespace) findNeighbor(dstIP net.IP, dstMac net.HardwareAddr) *neigh {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-
-	for _, nh := range n.neighbors {
-		if nh.dstIP.Equal(dstIP) && bytes.Equal(nh.dstMac, dstMac) {
-			return nh
-		}
-	}
-
-	return nil
-}
-
 // DeleteNeighbor deletes neighbor entry from the sandbox.
-func (n *Namespace) DeleteNeighbor(dstIP net.IP, dstMac net.HardwareAddr) error {
-	nh := n.findNeighbor(dstIP, dstMac)
-	if nh == nil {
-		return NeighborSearchError{dstIP, dstMac, false}
-	}
-
+//
+// The options must exactly match the options passed into AddNeighbor.
+func (n *Namespace) DeleteNeighbor(dstIP net.IP, dstMac net.HardwareAddr, options ...NeighOption) error {
 	n.mu.Lock()
 	nlh := n.nlHandle
 	n.mu.Unlock()
 
-	var linkIndex int
-	if nh.linkDst != "" {
-		iface, err := nlh.LinkByName(nh.linkDst)
-		if err != nil {
-			return fmt.Errorf("could not find interface with destination name %s: %v", nh.linkDst, err)
-		}
-		linkIndex = iface.Attrs().Index
+	nlnh, _, err := n.nlneigh(nlh, options...)
+	if err != nil {
+		return err
 	}
-
-	nlnh := &netlink.Neigh{
-		LinkIndex: linkIndex,
-		IP:        dstIP,
-		State:     netlink.NUD_PERMANENT,
-		Family:    nh.family,
-	}
-
-	if nh.family > 0 {
+	nlnh.IP = dstIP
+	nlnh.State = netlink.NUD_PERMANENT
+	if nlnh.Family > 0 {
 		nlnh.HardwareAddr = dstMac
 		nlnh.Flags = netlink.NTF_SELF
 	}
@@ -84,11 +43,11 @@ func (n *Namespace) DeleteNeighbor(dstIP net.IP, dstMac net.HardwareAddr) error 
 	}
 
 	// Delete the dynamic entry in the bridge
-	if nh.family > 0 {
+	if nlnh.Family > 0 {
 		if err := nlh.NeighDel(&netlink.Neigh{
-			LinkIndex:    linkIndex,
+			LinkIndex:    nlnh.LinkIndex,
 			IP:           dstIP,
-			Family:       nh.family,
+			Family:       nlnh.Family,
 			HardwareAddr: dstMac,
 			Flags:        netlink.NTF_MASTER,
 		}); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -96,14 +55,6 @@ func (n *Namespace) DeleteNeighbor(dstIP net.IP, dstMac net.HardwareAddr) error 
 		}
 	}
 
-	n.mu.Lock()
-	for i, neighbor := range n.neighbors {
-		if neighbor.dstIP.Equal(dstIP) && bytes.Equal(neighbor.dstMac, dstMac) {
-			n.neighbors = append(n.neighbors[:i], n.neighbors[i+1:]...)
-			break
-		}
-	}
-	n.mu.Unlock()
 	log.G(context.TODO()).Debugf("Neighbor entry deleted for IP %v, mac %v", dstIP, dstMac)
 
 	return nil
@@ -111,55 +62,47 @@ func (n *Namespace) DeleteNeighbor(dstIP net.IP, dstMac net.HardwareAddr) error 
 
 // AddNeighbor adds a neighbor entry into the sandbox.
 func (n *Namespace) AddNeighbor(dstIP net.IP, dstMac net.HardwareAddr, options ...NeighOption) error {
-	nh := n.findNeighbor(dstIP, dstMac)
-	if nh != nil {
-		log.G(context.TODO()).Warnf("Neighbor entry already present for IP %v, mac %v neighbor:%+v", dstIP, dstMac, nh)
-		return NeighborSearchError{dstIP, dstMac, true}
-	}
-
-	nh = &neigh{
-		dstIP:  dstIP,
-		dstMac: dstMac,
-	}
-
-	nh.processNeighOptions(options...)
-
 	n.mu.Lock()
 	nlh := n.nlHandle
 	n.mu.Unlock()
 
-	nlnh := &netlink.Neigh{
-		IP:           dstIP,
-		HardwareAddr: dstMac,
-		State:        netlink.NUD_PERMANENT,
-		Family:       nh.family,
+	nlnh, linkName, err := n.nlneigh(nlh, options...)
+	if err != nil {
+		return err
 	}
-
+	nlnh.IP = dstIP
+	nlnh.HardwareAddr = dstMac
+	nlnh.State = netlink.NUD_PERMANENT
 	if nlnh.Family > 0 {
 		nlnh.Flags = netlink.NTF_SELF
-	}
-
-	if nh.linkName != "" {
-		nh.linkDst = n.findDst(nh.linkName, false)
-		if nh.linkDst == "" {
-			return fmt.Errorf("could not find the interface with name %s", nh.linkName)
-		}
-
-		iface, err := nlh.LinkByName(nh.linkDst)
-		if err != nil {
-			return fmt.Errorf("could not find interface with destination name %s: %v", nh.linkDst, err)
-		}
-		nlnh.LinkIndex = iface.Attrs().Index
 	}
 
 	if err := nlh.NeighSet(nlnh); err != nil {
 		return fmt.Errorf("could not add neighbor entry:%+v error:%v", nlnh, err)
 	}
-
-	n.mu.Lock()
-	n.neighbors = append(n.neighbors, nh)
-	n.mu.Unlock()
-	log.G(context.TODO()).Debugf("Neighbor entry added for IP:%v, mac:%v on ifc:%s", dstIP, dstMac, nh.linkName)
+	log.G(context.TODO()).Debugf("Neighbor entry added for IP:%v, mac:%v on ifc:%s", dstIP, dstMac, linkName)
 
 	return nil
+}
+
+func (n *Namespace) nlneigh(nlh *netlink.Handle, options ...NeighOption) (nlnh *netlink.Neigh, linkName string, err error) {
+	nh := &neigh{}
+	nh.processNeighOptions(options...)
+
+	nlnh = &netlink.Neigh{Family: nh.family}
+
+	if nh.linkName != "" {
+		linkDst := n.findDst(nh.linkName, false)
+		if linkDst == "" {
+			return nil, "", fmt.Errorf("could not find the interface with name %s", nh.linkName)
+		}
+
+		iface, err := nlh.LinkByName(linkDst)
+		if err != nil {
+			return nil, "", fmt.Errorf("could not find interface with destination name %s: %v", linkDst, err)
+		}
+		nlnh.LinkIndex = iface.Attrs().Index
+	}
+
+	return nlnh, nh.linkName, nil
 }

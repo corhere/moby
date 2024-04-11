@@ -316,7 +316,6 @@ type Namespace struct {
 	gw                  net.IP
 	gwv6                net.IP
 	staticRoutes        []*types.StaticRoute
-	neighbors           []*neigh
 	nextIfIndex         map[string]int
 	isDefault           bool
 	ipv6LoEnabledOnce   sync.Once
