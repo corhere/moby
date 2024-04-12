@@ -78,7 +78,7 @@ func (d *driver) CreateEndpoint(nid, eid string, ifInfo driverapi.InterfaceInfo,
 	}
 
 	if ep.mac == nil {
-		ep.mac = netutils.GenerateMACFromIP(ep.addr.Addr().AsSlice())
+		ep.mac = netutils.GenerateRandomMAC()
 		if err := ifInfo.SetMacAddress(ep.mac); err != nil {
 			return err
 		}
