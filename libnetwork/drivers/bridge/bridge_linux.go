@@ -1082,6 +1082,7 @@ func (d *driver) CreateEndpoint(nid, eid string, ifInfo driverapi.InterfaceInfo,
 	if err = d.nlh.LinkSetUp(host); err != nil {
 		return fmt.Errorf("could not set link up for host interface %s: %v", hostIfName, err)
 	}
+	log.G(context.TODO()).WithFields(log.Fields{"hostifname": host.Attrs().Name, "ifi": host.Attrs().Index}).Debugf("bridge endpoint host link is up")
 
 	if endpoint.addrv6 == nil && config.EnableIPv6 {
 		var ip6 net.IP
