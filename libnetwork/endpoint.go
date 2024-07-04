@@ -626,9 +626,9 @@ func (ep *Endpoint) sbJoin(ctx context.Context, sb *Sandbox, options ...Endpoint
 		if !n.internal {
 			log.G(ctx).Debugf("Programming external connectivity on endpoint %s (%s)", ep.Name(), ep.ID())
 			if err = d.ProgramExternalConnectivity(ctx, n.ID(), ep.ID(), sb.Labels()); err != nil {
-				return types.InternalErrorf(
+				return errdefs.System(fmt.Errorf(
 					"driver failed programming external connectivity on endpoint %s (%s): %v",
-					ep.Name(), ep.ID(), err)
+					ep.Name(), ep.ID(), err))
 			}
 		}
 	}
