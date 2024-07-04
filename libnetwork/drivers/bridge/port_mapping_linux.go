@@ -9,8 +9,11 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"os"
 	"slices"
 	"strconv"
+	"syscall"
+	"unsafe"
 
 	"github.com/containerd/log"
 	"github.com/docker/docker/libnetwork/iptables"
@@ -18,10 +21,17 @@ import (
 	"github.com/docker/docker/libnetwork/portallocator"
 	"github.com/docker/docker/libnetwork/portmapper"
 	"github.com/docker/docker/libnetwork/types"
+	"github.com/ishidawataru/sctp"
 )
 
 type portBinding struct {
 	types.PortBinding
+	// boundSocket is used to reserve a host port for the binding. If the
+	// userland proxy is in-use, it's passed to the proxy when the proxy is
+	// started, then it's closed and set to nil here.
+	boundSocket *os.File
+	// stopProxy is a function to stop the userland proxy for this binding,
+	// if a proxy has been started - else nil.
 	stopProxy func() error
 }
 
@@ -30,15 +40,18 @@ type portBindingReq struct {
 	disableNAT bool
 }
 
+// Allow unit tests to supply a dummy StartProxy.
+var startProxy = portmapper.StartProxy
+
 // addPortMappings takes cfg, the configuration for port mappings, selects host
-// ports when ranges are given, starts docker-proxy or its dummy to reserve
-// host ports, and sets up iptables NAT/forwarding rules as necessary. If
-// anything goes wrong, it will undo any work it's done and return an error.
-// Otherwise, the returned slice of portBinding has an entry per address
-// family (if cfg describes a mapping for 'any' host address, it's expanded
-// into mappings for IPv4 and IPv6, because that's how the mapping is presented
-// in 'inspect'). HostPort and HostPortEnd in each returned portBinding are set
-// to the selected and reserved port.
+// ports when ranges are given, binds host ports to check they're available and
+// reserve them, starts docker-proxy if required, and sets up iptables
+// NAT/forwarding rules as necessary. If anything goes wrong, it will undo any
+// work it's done and return an error. Otherwise, the returned slice of
+// portBinding has an entry per address family (if cfg describes a mapping for
+// 'any' host address, it's expanded into mappings for IPv4 and IPv6, because
+// that's how the mapping is presented in 'inspect'). HostPort and HostPortEnd in
+// each returned portBinding are set to the selected and reserved port.
 func (n *bridgeNetwork) addPortMappings(
 	epAddrV4, epAddrV6 *net.IPNet,
 	cfg []types.PortBinding,
@@ -116,21 +129,47 @@ func (n *bridgeNetwork) addPortMappings(
 			continue
 		}
 
-		// Allocate a host port, and reserve it by starting docker-proxy for each host
-		// address in toBind.
+		// Allocate and bind a host port.
 		newB, err := bindHostPorts(toBind, proxyPath)
 		if err != nil {
 			return nil, err
 		}
 		bindings = append(bindings, newB...)
 
-		// Reset the collection of bindings now they're bound.
+		// Reset toBind now the ports are bound.
 		toBind = toBind[:0]
 	}
 
 	for _, b := range bindings {
 		if err := n.setPerPortIptables(b, true); err != nil {
 			return nil, err
+		}
+	}
+
+	// Now the iptables rules are set up, it's safe to start the userland proxy.
+	// (If it was started before the iptables rules were created, it may have
+	// accepted a connection, then become unreachable due to NAT rules sending
+	// packets directly to the container.)
+	somaxconn := getSOMAXCONN()
+	for i := range bindings {
+		if bindings[i].boundSocket == nil {
+			continue
+		}
+		if bindings[i].Proto == types.TCP {
+			// If not starting the proxy, nothing will ever accept a connection on the
+			// socket. But, listen anyway so that the binding shows up in "netstat -at".
+			if err := syscall.Listen(int(bindings[i].boundSocket.Fd()), somaxconn); err != nil {
+				return nil, fmt.Errorf("failed to listen on TCP socket: %w", err)
+			}
+		}
+		if proxyPath != "" {
+			var err error
+			bindings[i].stopProxy, err = startProxy(bindings[i].PortBinding, proxyPath, bindings[i].boundSocket)
+			bindings[i].boundSocket = nil // startProxy took ownership of the socket.
+			if err != nil {
+				return nil, fmt.Errorf("failed to start userland proxy for port mapping %s: %w",
+					bindings[i].PortBinding, err)
+			}
 		}
 	}
 
@@ -322,7 +361,7 @@ func configurePortBindingIPv6(disableNAT bool, bnd types.PortBinding, containerI
 	}, true
 }
 
-// bindHostPorts allocates ports and starts docker-proxy for the given cfg. The
+// bindHostPorts allocates and binds host ports for the given cfg. The
 // caller is responsible for ensuring that all entries in cfg map the same proto,
 // container port, and host port range (their host addresses must differ).
 func bindHostPorts(cfg []portBindingReq, proxyPath string) ([]portBinding, error) {
@@ -357,17 +396,13 @@ func bindHostPorts(cfg []portBindingReq, proxyPath string) ([]portBinding, error
 	return nil, err
 }
 
-// Allow unit tests to supply a dummy StartProxy.
-var startProxy = portmapper.StartProxy
-
 // attemptBindHostPorts allocates host ports for each port mapping that requires
-// one, and reserves those ports by starting docker-proxy.
+// one, and reserves those ports by binding them.
 //
 // If the allocator doesn't have an available port in the required range, or the
-// docker-proxy process doesn't start (perhaps because another process has
-// already bound the port), all resources are released and an error is returned.
-// When ports are successfully reserved, a portBinding is returned for each
-// mapping.
+// port can't be bound (perhaps because another process has already bound it),
+// all resources are released and an error is returned. When ports are
+// successfully reserved, a portBinding is returned for each mapping.
 //
 // If NAT is disabled for any of the bindings, no host port reservation is
 // needed. These bindings are included in results, as the container port itself
@@ -404,28 +439,184 @@ func attemptBindHostPorts(
 	}
 
 	res := make([]portBinding, 0, len(cfg))
-	for _, c := range cfg {
-		pb := portBinding{PortBinding: c.GetCopy()}
-		if c.disableNAT {
-			pb.HostPort = 0
-		} else {
-			pb.stopProxy, err = startProxy(c.Proto.String(), c.HostIP, port, c.IP, int(c.Port), proxyPath)
-			if err != nil {
-				return nil, fmt.Errorf("failed to bind port %s:%d/%s: %w", c.HostIP, port, c.Proto, err)
-			}
-			defer func() {
-				if retErr != nil {
-					if err := pb.stopProxy(); err != nil {
-						log.G(context.TODO()).Warnf("Failed to stop userland proxy for port mapping %s: %s", pb, err)
+	defer func() {
+		if retErr != nil {
+			for _, pb := range res {
+				if pb.boundSocket != nil {
+					if err := pb.boundSocket.Close(); err != nil {
+						log.G(context.TODO()).Warnf("Failed to close port binding for %s: %s", pb, err)
 					}
 				}
-			}()
-			pb.HostPort = uint16(port)
+				// TODO(robmry) - this is only needed because the userland proxy may have
+				//  been started for SCTP. If a bound socket is passed to the proxy after
+				//  iptables rules have been configured (as it is for TCP/UDP), remove this.
+				if pb.stopProxy != nil {
+					if err := pb.stopProxy(); err != nil {
+						log.G(context.TODO()).Warnf("Failed to stop proxy for %s: %s", pb, err)
+					}
+				}
+			}
 		}
-		pb.HostPortEnd = pb.HostPort
+	}()
+
+	for _, c := range cfg {
+		var pb portBinding
+		if c.disableNAT {
+			pb = portBinding{PortBinding: c.GetCopy()}
+			pb.HostPort = 0
+			pb.HostPortEnd = 0
+		} else {
+			switch proto {
+			case "tcp":
+				pb, err = bindTCPOrUDP(c.PortBinding, port, syscall.SOCK_STREAM, syscall.IPPROTO_TCP)
+			case "udp":
+				pb, err = bindTCPOrUDP(c.PortBinding, port, syscall.SOCK_DGRAM, syscall.IPPROTO_UDP)
+			case "sctp":
+				if proxyPath == "" {
+					pb, err = bindSCTP(c.PortBinding, port)
+				} else {
+					// TODO(robmry) - it's not currently possible to pass a bound SCTP port
+					//  to the userland proxy, because the proxy is not able to convert the
+					//  file descriptor into an sctp.SCTPListener (fd is an unexported member
+					//  of the struct, and ListenSCTP is the only constructor).
+					//  So, it is possible for the proxy to start listening and accept
+					//  connections before iptables rules are created that would bypass
+					//  the proxy for external connections.
+					//  Remove this and pb.stopProxy() from the cleanup function above if
+					//  this is fixed.
+					pb, err = startSCTPProxy(c.PortBinding, port, proxyPath)
+				}
+			default:
+				return nil, fmt.Errorf("Unknown addr type: %s", proto)
+			}
+			if err != nil {
+				return nil, err
+			}
+		}
 		res = append(res, pb)
 	}
 	return res, nil
+}
+
+func bindTCPOrUDP(cfg types.PortBinding, port, typ, proto int) (_ portBinding, retErr error) {
+	pb := portBinding{PortBinding: cfg.GetCopy()}
+	pb.HostPort = uint16(port)
+	pb.HostPortEnd = pb.HostPort
+
+	var domain int
+	var sa syscall.Sockaddr
+	if hip := cfg.HostIP.To4(); hip != nil {
+		domain = syscall.AF_INET
+		sa4 := syscall.SockaddrInet4{Port: port}
+		copy(sa4.Addr[:], hip)
+		sa = &sa4
+	} else {
+		domain = syscall.AF_INET6
+		sa6 := syscall.SockaddrInet6{Port: port}
+		copy(sa6.Addr[:], cfg.HostIP)
+		sa = &sa6
+	}
+
+	sd, err := syscall.Socket(domain, typ, proto)
+	if err != nil {
+		return portBinding{}, fmt.Errorf("failed to create socket for userland proxy for %s: %w", cfg, err)
+	}
+	defer func() {
+		if retErr != nil {
+			syscall.Close(sd)
+		}
+	}()
+
+	if domain == syscall.AF_INET6 {
+		syscall.SetsockoptInt(sd, syscall.IPPROTO_IPV6, syscall.IPV6_V6ONLY, 1)
+	}
+	if err := syscall.Bind(sd, sa); err != nil {
+		if cfg.HostPort == cfg.HostPortEnd {
+			return portBinding{}, fmt.Errorf("failed to bind host port for %s: %w", cfg, err)
+		}
+		return portBinding{}, fmt.Errorf("failed to bind host port %d for %s: %w", port, cfg, err)
+	}
+
+	pb.boundSocket = os.NewFile(uintptr(sd), "listener")
+	if pb.boundSocket == nil {
+		return portBinding{}, fmt.Errorf("failed to convert socket for userland proxy for %s", cfg)
+	}
+	return pb, nil
+}
+
+// bindSCTP is based on sctp.ListenSCTP. The socket is created and bound, but
+// does not start listening.
+func bindSCTP(cfg types.PortBinding, port int) (_ portBinding, retErr error) {
+	pb := portBinding{PortBinding: cfg.GetCopy()}
+	pb.HostPort = uint16(port)
+	pb.HostPortEnd = pb.HostPort
+
+	domain := syscall.AF_INET
+	if cfg.HostIP.To4() == nil {
+		domain = syscall.AF_INET6
+	}
+
+	sd, err := syscall.Socket(domain, syscall.SOCK_STREAM, syscall.IPPROTO_SCTP)
+	if err != nil {
+		return portBinding{}, fmt.Errorf("failed to create socket for userland proxy for %s: %w", cfg, err)
+	}
+	defer func() {
+		if retErr != nil {
+			syscall.Close(sd)
+		}
+	}()
+
+	if domain == syscall.AF_INET6 {
+		syscall.SetsockoptInt(sd, syscall.IPPROTO_IPV6, syscall.IPV6_V6ONLY, 1)
+	}
+
+	options := sctp.InitMsg{NumOstreams: sctp.SCTP_MAX_STREAM}
+	if _, _, errno := syscall.Syscall6(syscall.SYS_SETSOCKOPT,
+		uintptr(sd),
+		sctp.SOL_SCTP,
+		sctp.SCTP_INITMSG,
+		uintptr(unsafe.Pointer(&options)),
+		unsafe.Sizeof(options),
+		0); errno != 0 {
+		return portBinding{}, errno
+	}
+
+	if err := sctp.SCTPBind(sd,
+		&sctp.SCTPAddr{IPAddrs: []net.IPAddr{{IP: cfg.HostIP}}, Port: int(cfg.HostPort)},
+		sctp.SCTP_BINDX_ADD_ADDR); err != nil {
+		return portBinding{}, fmt.Errorf("failed to bind socket for userland proxy for %s: %w", cfg, err)
+	}
+
+	pb.boundSocket = os.NewFile(uintptr(sd), "listener")
+	if pb.boundSocket == nil {
+		return portBinding{}, fmt.Errorf("failed to convert socket for userland proxy for %s", cfg)
+	}
+	return pb, nil
+}
+
+func startSCTPProxy(cfg types.PortBinding, port int, proxyPath string) (_ portBinding, retErr error) {
+	pb := portBinding{PortBinding: cfg.GetCopy()}
+	pb.HostPort = uint16(port)
+	pb.HostPortEnd = pb.HostPort
+
+	var err error
+	pb.stopProxy, err = startProxy(cfg, proxyPath, nil)
+	if err != nil {
+		return portBinding{}, err
+	}
+	return pb, nil
+}
+
+func getSOMAXCONN() int {
+	b, err := os.ReadFile("/proc/sys/net/core/somaxconn")
+	if err != nil {
+		return syscall.SOMAXCONN
+	}
+	n, err := strconv.ParseInt(string(b), 10, 32)
+	if n == 0 || err != nil {
+		return syscall.SOMAXCONN
+	}
+	return int(n)
 }
 
 // releasePorts attempts to release all port bindings, does not stop on failure
@@ -441,11 +632,17 @@ func (n *bridgeNetwork) releasePorts(ep *bridgeEndpoint) error {
 func (n *bridgeNetwork) releasePortBindings(pbs []portBinding) error {
 	var errs []error
 	for _, pb := range pbs {
-		var errP error
+		var errS, errP error
+		if pb.boundSocket != nil {
+			errS = pb.boundSocket.Close()
+			if errS != nil {
+				errS = fmt.Errorf("failed to close socket for port mapping %s: %w", pb, errS)
+			}
+		}
 		if pb.stopProxy != nil {
 			errP = pb.stopProxy()
 			if errP != nil {
-				errP = fmt.Errorf("failed to stop docker-proxy for port mapping %s: %w", pb, errP)
+				errP = fmt.Errorf("failed to stop userland proxy for port mapping %s: %w", pb, errP)
 			}
 		}
 		errN := n.setPerPortIptables(pb, false)
@@ -455,7 +652,7 @@ func (n *bridgeNetwork) releasePortBindings(pbs []portBinding) error {
 		if pb.HostPort > 0 {
 			portallocator.Get().ReleasePort(pb.HostIP, pb.Proto.String(), int(pb.HostPort))
 		}
-		errs = append(errs, errP, errN)
+		errs = append(errs, errS, errP, errN)
 	}
 	return errors.Join(errs...)
 }

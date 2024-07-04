@@ -36,12 +36,12 @@ type Proxy interface {
 }
 
 // NewProxy creates a Proxy according to the specified frontendAddr and backendAddr.
-func NewProxy(frontendAddr, backendAddr net.Addr) (Proxy, error) {
+func NewProxy(frontendAddr, backendAddr net.Addr, listenFd uintptr) (Proxy, error) {
 	switch frontendAddr.(type) {
 	case *net.UDPAddr:
-		return NewUDPProxy(frontendAddr.(*net.UDPAddr), backendAddr.(*net.UDPAddr))
+		return NewUDPProxy(listenFd, backendAddr.(*net.UDPAddr))
 	case *net.TCPAddr:
-		return NewTCPProxy(frontendAddr.(*net.TCPAddr), backendAddr.(*net.TCPAddr))
+		return NewTCPProxy(listenFd, backendAddr.(*net.TCPAddr))
 	case *sctp.SCTPAddr:
 		return NewSCTPProxy(frontendAddr.(*sctp.SCTPAddr), backendAddr.(*sctp.SCTPAddr))
 	default:

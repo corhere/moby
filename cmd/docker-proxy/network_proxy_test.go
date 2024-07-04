@@ -1,3 +1,5 @@
+//go:build !windows
+
 package main
 
 import (
@@ -11,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ishidawataru/sctp"
+	"gotest.tools/v3/assert"
 	"gotest.tools/v3/skip"
 )
 
@@ -128,6 +131,22 @@ func (server *UDPEchoServer) Run() {
 func (server *UDPEchoServer) LocalAddr() net.Addr { return server.conn.LocalAddr() }
 func (server *UDPEchoServer) Close()              { server.conn.Close() }
 
+func tcpListenFd(t *testing.T, nw string, addr *net.TCPAddr) uintptr {
+	l, err := net.ListenTCP(nw, addr)
+	assert.NilError(t, err)
+	lf, err := l.File()
+	assert.NilError(t, err)
+	return lf.Fd()
+}
+
+func udpListenFd(t *testing.T, nw string, addr *net.UDPAddr) uintptr {
+	l, err := net.ListenUDP(nw, addr)
+	assert.NilError(t, err)
+	lf, err := l.File()
+	assert.NilError(t, err)
+	return lf.Fd()
+}
+
 func testProxyAt(t *testing.T, proto string, proxy Proxy, addr string, halfClose bool) {
 	defer proxy.Close()
 	go proxy.Run()
@@ -176,7 +195,7 @@ func testTCP4Proxy(t *testing.T, halfClose bool) {
 	defer backend.Close()
 	backend.Run()
 	frontendAddr := &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0}
-	proxy, err := NewProxy(frontendAddr, backend.LocalAddr())
+	proxy, err := NewProxy(frontendAddr, backend.LocalAddr(), tcpListenFd(t, "tcp4", frontendAddr))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,12 +211,11 @@ func TestTCP4ProxyHalfClose(t *testing.T) {
 }
 
 func TestTCP6Proxy(t *testing.T) {
-	t.Skip("Need to start CI docker with --ipv6")
 	backend := NewEchoServer(t, "tcp", "[::1]:0", EchoServerOptions{})
 	defer backend.Close()
 	backend.Run()
 	frontendAddr := &net.TCPAddr{IP: net.IPv6loopback, Port: 0}
-	proxy, err := NewProxy(frontendAddr, backend.LocalAddr())
+	proxy, err := NewProxy(frontendAddr, backend.LocalAddr(), tcpListenFd(t, "tcp6", frontendAddr))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,14 +223,11 @@ func TestTCP6Proxy(t *testing.T) {
 }
 
 func TestTCPDualStackProxy(t *testing.T) {
-	// If I understand `godoc -src net favoriteAddrFamily` (used by the
-	// net.Listen* functions) correctly this should work, but it doesn't.
-	t.Skip("No support for dual stack yet")
 	backend := NewEchoServer(t, "tcp", "[::1]:0", EchoServerOptions{})
 	defer backend.Close()
 	backend.Run()
-	frontendAddr := &net.TCPAddr{IP: net.IPv6loopback, Port: 0}
-	proxy, err := NewProxy(frontendAddr, backend.LocalAddr())
+	frontendAddr := &net.TCPAddr{IP: net.IPv6zero, Port: 0}
+	proxy, err := NewProxy(frontendAddr, backend.LocalAddr(), tcpListenFd(t, "tcp", frontendAddr))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,7 +243,7 @@ func TestUDP4Proxy(t *testing.T) {
 	defer backend.Close()
 	backend.Run()
 	frontendAddr := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0}
-	proxy, err := NewProxy(frontendAddr, backend.LocalAddr())
+	proxy, err := NewProxy(frontendAddr, backend.LocalAddr(), udpListenFd(t, "udp4", frontendAddr))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,12 +251,11 @@ func TestUDP4Proxy(t *testing.T) {
 }
 
 func TestUDP6Proxy(t *testing.T) {
-	t.Skip("Need to start CI docker with --ipv6")
 	backend := NewEchoServer(t, "udp", "[::1]:0", EchoServerOptions{})
 	defer backend.Close()
 	backend.Run()
-	frontendAddr := &net.UDPAddr{IP: net.IPv6loopback, Port: 0}
-	proxy, err := NewProxy(frontendAddr, backend.LocalAddr())
+	frontendAddr := &net.UDPAddr{IP: net.IPv6zero, Port: 0}
+	proxy, err := NewProxy(frontendAddr, backend.LocalAddr(), udpListenFd(t, "udp6", frontendAddr))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +266,7 @@ func TestUDPWriteError(t *testing.T) {
 	frontendAddr := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0}
 	// Hopefully, this port will be free: */
 	backendAddr := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 25587}
-	proxy, err := NewProxy(frontendAddr, backendAddr)
+	proxy, err := NewProxy(frontendAddr, backendAddr, udpListenFd(t, "udp4", frontendAddr))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -289,7 +303,7 @@ func TestSCTP4Proxy(t *testing.T) {
 	defer backend.Close()
 	backend.Run()
 	frontendAddr := &sctp.SCTPAddr{IPAddrs: []net.IPAddr{{IP: net.IPv4(127, 0, 0, 1)}}, Port: 0}
-	proxy, err := NewProxy(frontendAddr, backend.LocalAddr())
+	proxy, err := NewProxy(frontendAddr, backend.LocalAddr(), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -304,7 +318,7 @@ func TestSCTP6Proxy(t *testing.T) {
 	defer backend.Close()
 	backend.Run()
 	frontendAddr := &sctp.SCTPAddr{IPAddrs: []net.IPAddr{{IP: net.IPv6loopback}}, Port: 0}
-	proxy, err := NewProxy(frontendAddr, backend.LocalAddr())
+	proxy, err := NewProxy(frontendAddr, backend.LocalAddr(), 0)
 	if err != nil {
 		t.Fatal(err)
 	}

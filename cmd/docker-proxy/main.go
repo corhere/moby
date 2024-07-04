@@ -13,11 +13,23 @@ import (
 	"github.com/ishidawataru/sctp"
 )
 
+// The caller is expected to pass-in open file descriptors ...
+const (
+	// Pipe for reporting status, as a string. "0\n" if the proxy
+	// started normally. "1\n<error message>" otherwise.
+	parentPipeFd uintptr = 3
+	// Listening socket, ready to accept TCP connections or receive
+	// UDP. Required for TCP/UDP. Not allowed for SCTP (the proxy
+	// will open its own socket for SCTP, because it's not currently
+	// possible to construct an sctp.SCTPListener from a file descriptor).
+	listenSockFd uintptr = 4
+)
+
 func main() {
-	f := os.NewFile(3, "signal-parent")
+	f := os.NewFile(parentPipeFd, "signal-parent")
 	host, container := parseFlags()
 
-	p, err := NewProxy(host, container)
+	p, err := NewProxy(host, container, listenSockFd)
 	if err != nil {
 		fmt.Fprintf(f, "1\n%s", err)
 		f.Close()

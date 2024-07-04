@@ -4,28 +4,31 @@ import (
 	"io"
 	"log"
 	"net"
+	"os"
 	"sync"
+
+	"github.com/pkg/errors"
 )
 
 // TCPProxy is a proxy for TCP connections. It implements the Proxy interface to
 // handle TCP traffic forwarding between the frontend and backend addresses.
 type TCPProxy struct {
-	listener     *net.TCPListener
+	listener     net.Listener
 	frontendAddr *net.TCPAddr
 	backendAddr  *net.TCPAddr
 }
 
 // NewTCPProxy creates a new TCPProxy.
-func NewTCPProxy(frontendAddr, backendAddr *net.TCPAddr) (*TCPProxy, error) {
-	// detect version of hostIP to bind only to correct version
-	ipVersion := ipv4
-	if frontendAddr.IP.To4() == nil {
-		ipVersion = ipv6
+func NewTCPProxy(listenFd uintptr, backendAddr *net.TCPAddr) (*TCPProxy, error) {
+	f := os.NewFile(listenFd, "listen-sock")
+	if f == nil {
+		return nil, errors.New("failed to find TCP listen socket")
 	}
-	listener, err := net.ListenTCP("tcp"+string(ipVersion), frontendAddr)
+	listener, err := net.FileListener(f)
 	if err != nil {
 		return nil, err
 	}
+	f.Close()
 	// If the port in frontendAddr was 0 then ListenTCP will have a picked
 	// a port to listen on, hence the call to Addr to get that actual port:
 	return &TCPProxy{

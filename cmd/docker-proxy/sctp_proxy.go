@@ -12,7 +12,7 @@ import (
 // SCTPProxy is a proxy for SCTP connections. It implements the Proxy interface to
 // handle SCTP traffic forwarding between the frontend and backend addresses.
 type SCTPProxy struct {
-	listener     *sctp.SCTPListener
+	listener     net.Listener
 	frontendAddr *sctp.SCTPAddr
 	backendAddr  *sctp.SCTPAddr
 }
@@ -24,10 +24,14 @@ func NewSCTPProxy(frontendAddr, backendAddr *sctp.SCTPAddr) (*SCTPProxy, error) 
 	if frontendAddr.IPAddrs[0].IP.To4() == nil {
 		ipVersion = ipv6
 	}
+	// Unlike TCP/UDP, the SCTP listener is created by docker-proxy (only
+	// because it's not currently possible to create an sctp.SCTPListener
+	// from a file descriptor).
 	listener, err := sctp.ListenSCTP("sctp"+string(ipVersion), frontendAddr)
 	if err != nil {
 		return nil, err
 	}
+
 	// If the port in frontendAddr was 0 then ListenSCTP will have a picked
 	// a port to listen on, hence the call to Addr to get that actual port:
 	return &SCTPProxy{
