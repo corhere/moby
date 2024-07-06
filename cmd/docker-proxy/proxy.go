@@ -29,8 +29,6 @@ type Proxy interface {
 	Run()
 	// Close stops forwarding traffic and close both ends of the Proxy.
 	Close()
-	// FrontendAddr returns the address on which the proxy is listening.
-	FrontendAddr() net.Addr
 }
 
 // NewProxy creates a Proxy according to the specified frontendAddr and backendAddr.

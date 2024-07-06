@@ -131,20 +131,20 @@ func (server *UDPEchoServer) Run() {
 func (server *UDPEchoServer) LocalAddr() net.Addr { return server.conn.LocalAddr() }
 func (server *UDPEchoServer) Close()              { server.conn.Close() }
 
-func tcpListenFd(t *testing.T, nw string, addr *net.TCPAddr) uintptr {
+func tcpListenFd(t *testing.T, nw string, addr *net.TCPAddr) (uintptr, *net.TCPAddr) {
 	l, err := net.ListenTCP(nw, addr)
 	assert.NilError(t, err)
 	lf, err := l.File()
 	assert.NilError(t, err)
-	return lf.Fd()
+	return lf.Fd(), l.Addr().(*net.TCPAddr)
 }
 
-func udpListenFd(t *testing.T, nw string, addr *net.UDPAddr) uintptr {
+func udpListenFd(t *testing.T, nw string, addr *net.UDPAddr) (uintptr, *net.UDPAddr) {
 	l, err := net.ListenUDP(nw, addr)
 	assert.NilError(t, err)
 	lf, err := l.File()
 	assert.NilError(t, err)
-	return lf.Fd()
+	return lf.Fd(), l.LocalAddr().(*net.UDPAddr)
 }
 
 func testProxyAt(t *testing.T, proto string, proxy Proxy, addr string, halfClose bool) {
@@ -186,20 +186,17 @@ func testProxyAt(t *testing.T, proto string, proxy Proxy, addr string, halfClose
 	}
 }
 
-func testProxy(t *testing.T, proto string, proxy Proxy, halfClose bool) {
-	testProxyAt(t, proto, proxy, proxy.FrontendAddr().String(), halfClose)
-}
-
 func testTCP4Proxy(t *testing.T, halfClose bool) {
 	backend := NewEchoServer(t, "tcp", "127.0.0.1:0", EchoServerOptions{TCPHalfClose: halfClose})
 	defer backend.Close()
 	backend.Run()
 	frontendAddr := &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0}
-	proxy, err := NewProxy(frontendAddr, backend.LocalAddr(), tcpListenFd(t, "tcp4", frontendAddr))
+	listenFd, frontendAddr := tcpListenFd(t, "tcp4", frontendAddr)
+	proxy, err := NewTCPProxy(listenFd, backend.LocalAddr().(*net.TCPAddr))
 	if err != nil {
 		t.Fatal(err)
 	}
-	testProxy(t, "tcp", proxy, halfClose)
+	testProxyAt(t, "tcp", proxy, frontendAddr.String(), halfClose)
 }
 
 func TestTCP4Proxy(t *testing.T) {
@@ -215,11 +212,12 @@ func TestTCP6Proxy(t *testing.T) {
 	defer backend.Close()
 	backend.Run()
 	frontendAddr := &net.TCPAddr{IP: net.IPv6loopback, Port: 0}
-	proxy, err := NewProxy(frontendAddr, backend.LocalAddr(), tcpListenFd(t, "tcp6", frontendAddr))
+	listenFd, frontendAddr := tcpListenFd(t, "tcp6", frontendAddr)
+	proxy, err := NewTCPProxy(listenFd, backend.LocalAddr().(*net.TCPAddr))
 	if err != nil {
 		t.Fatal(err)
 	}
-	testProxy(t, "tcp", proxy, false)
+	testProxyAt(t, "tcp", proxy, frontendAddr.String(), false)
 }
 
 func TestTCPDualStackProxy(t *testing.T) {
@@ -227,13 +225,14 @@ func TestTCPDualStackProxy(t *testing.T) {
 	defer backend.Close()
 	backend.Run()
 	frontendAddr := &net.TCPAddr{IP: net.IPv6zero, Port: 0}
-	proxy, err := NewProxy(frontendAddr, backend.LocalAddr(), tcpListenFd(t, "tcp", frontendAddr))
+	listenFd, frontendAddr := tcpListenFd(t, "tcp", frontendAddr)
+	proxy, err := NewTCPProxy(listenFd, backend.LocalAddr().(*net.TCPAddr))
 	if err != nil {
 		t.Fatal(err)
 	}
 	ipv4ProxyAddr := &net.TCPAddr{
 		IP:   net.IPv4(127, 0, 0, 1),
-		Port: proxy.FrontendAddr().(*net.TCPAddr).Port,
+		Port: frontendAddr.Port,
 	}
 	testProxyAt(t, "tcp", proxy, ipv4ProxyAddr.String(), false)
 }
@@ -243,11 +242,12 @@ func TestUDP4Proxy(t *testing.T) {
 	defer backend.Close()
 	backend.Run()
 	frontendAddr := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0}
-	proxy, err := NewProxy(frontendAddr, backend.LocalAddr(), udpListenFd(t, "udp4", frontendAddr))
+	listenFd, frontendAddr := udpListenFd(t, "udp4", frontendAddr)
+	proxy, err := NewUDPProxy(listenFd, backend.LocalAddr().(*net.UDPAddr))
 	if err != nil {
 		t.Fatal(err)
 	}
-	testProxy(t, "udp", proxy, false)
+	testProxyAt(t, "udp", proxy, frontendAddr.String(), false)
 }
 
 func TestUDP6Proxy(t *testing.T) {
@@ -255,24 +255,26 @@ func TestUDP6Proxy(t *testing.T) {
 	defer backend.Close()
 	backend.Run()
 	frontendAddr := &net.UDPAddr{IP: net.IPv6zero, Port: 0}
-	proxy, err := NewProxy(frontendAddr, backend.LocalAddr(), udpListenFd(t, "udp6", frontendAddr))
+	listenFd, frontendAddr := udpListenFd(t, "udp6", frontendAddr)
+	proxy, err := NewUDPProxy(listenFd, backend.LocalAddr().(*net.UDPAddr))
 	if err != nil {
 		t.Fatal(err)
 	}
-	testProxy(t, "udp", proxy, false)
+	testProxyAt(t, "udp", proxy, frontendAddr.String(), false)
 }
 
 func TestUDPWriteError(t *testing.T) {
 	frontendAddr := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0}
 	// Hopefully, this port will be free: */
 	backendAddr := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 25587}
-	proxy, err := NewProxy(frontendAddr, backendAddr, udpListenFd(t, "udp4", frontendAddr))
+	listenFd, frontendAddr := udpListenFd(t, "udp4", frontendAddr)
+	proxy, err := NewUDPProxy(listenFd, backendAddr)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer proxy.Close()
 	go proxy.Run()
-	client, err := net.Dial("udp", "127.0.0.1:25587")
+	client, err := net.Dial("udp", frontendAddr.String())
 	if err != nil {
 		t.Fatalf("Can't connect to the proxy: %v", err)
 	}
@@ -303,11 +305,11 @@ func TestSCTP4Proxy(t *testing.T) {
 	defer backend.Close()
 	backend.Run()
 	frontendAddr := &sctp.SCTPAddr{IPAddrs: []net.IPAddr{{IP: net.IPv4(127, 0, 0, 1)}}, Port: 0}
-	proxy, err := NewProxy(frontendAddr, backend.LocalAddr(), 0)
+	proxy, err := NewSCTPProxy(frontendAddr, backend.LocalAddr().(*sctp.SCTPAddr))
 	if err != nil {
 		t.Fatal(err)
 	}
-	testProxy(t, "sctp", proxy, false)
+	testProxyAt(t, "sctp", proxy, proxy.listener.Addr().String(), false)
 }
 
 func TestSCTP6Proxy(t *testing.T) {
@@ -318,9 +320,9 @@ func TestSCTP6Proxy(t *testing.T) {
 	defer backend.Close()
 	backend.Run()
 	frontendAddr := &sctp.SCTPAddr{IPAddrs: []net.IPAddr{{IP: net.IPv6loopback}}, Port: 0}
-	proxy, err := NewProxy(frontendAddr, backend.LocalAddr(), 0)
+	proxy, err := NewSCTPProxy(frontendAddr, backend.LocalAddr().(*sctp.SCTPAddr))
 	if err != nil {
 		t.Fatal(err)
 	}
-	testProxy(t, "sctp", proxy, false)
+	testProxyAt(t, "sctp", proxy, proxy.listener.Addr().String(), false)
 }
