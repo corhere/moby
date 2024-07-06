@@ -4,13 +4,10 @@ import (
 	"encoding/binary"
 	"log"
 	"net"
-	"os"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
-
-	"github.com/pkg/errors"
 )
 
 const (
@@ -49,7 +46,7 @@ type connTrackMap map[connTrackKey]*net.UDPConn
 // interface to handle UDP traffic forwarding between the frontend and backend
 // addresses.
 type UDPProxy struct {
-	listener       net.PacketConn
+	listener       *net.UDPConn
 	frontendAddr   *net.UDPAddr
 	backendAddr    *net.UDPAddr
 	connTrackTable connTrackMap
@@ -57,16 +54,7 @@ type UDPProxy struct {
 }
 
 // NewUDPProxy creates a new UDPProxy.
-func NewUDPProxy(listenFd uintptr, backendAddr *net.UDPAddr) (*UDPProxy, error) {
-	f := os.NewFile(listenFd, "listen-sock")
-	if f == nil {
-		return nil, errors.New("failed to find UDP socket")
-	}
-	listener, err := net.FilePacketConn(f)
-	if err != nil {
-		return nil, err
-	}
-	f.Close()
+func NewUDPProxy(listener *net.UDPConn, backendAddr *net.UDPAddr) (*UDPProxy, error) {
 	return &UDPProxy{
 		listener:       listener,
 		frontendAddr:   listener.LocalAddr().(*net.UDPAddr),
@@ -100,7 +88,7 @@ func (proxy *UDPProxy) replyLoop(proxyConn *net.UDPConn, clientAddr *net.UDPAddr
 			return
 		}
 		for i := 0; i != read; {
-			written, err := proxy.listener.WriteTo(readBuf[i:read], clientAddr)
+			written, err := proxy.listener.WriteToUDP(readBuf[i:read], clientAddr)
 			if err != nil {
 				return
 			}
@@ -113,7 +101,7 @@ func (proxy *UDPProxy) replyLoop(proxyConn *net.UDPConn, clientAddr *net.UDPAddr
 func (proxy *UDPProxy) Run() {
 	readBuf := make([]byte, UDPBufSize)
 	for {
-		read, fromAddr, err := proxy.listener.ReadFrom(readBuf)
+		read, from, err := proxy.listener.ReadFromUDP(readBuf)
 		if err != nil {
 			// NOTE: Apparently ReadFrom doesn't return
 			// ECONNREFUSED like Read do (see comment in
@@ -124,11 +112,6 @@ func (proxy *UDPProxy) Run() {
 			break
 		}
 
-		from, ok := fromAddr.(*net.UDPAddr)
-		if !ok {
-			log.Printf("Can't get UDP address from %s\n", fromAddr)
-			break
-		}
 		fromKey := newConnTrackKey(from)
 		proxy.connTrackLock.Lock()
 		proxyConn, hit := proxy.connTrackTable[*fromKey]

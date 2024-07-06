@@ -2,12 +2,6 @@
 // and UDP.
 package main
 
-import (
-	"net"
-
-	"github.com/ishidawataru/sctp"
-)
-
 // ipVersion refers to IP version - v4 or v6
 type ipVersion string
 
@@ -29,18 +23,4 @@ type Proxy interface {
 	Run()
 	// Close stops forwarding traffic and close both ends of the Proxy.
 	Close()
-}
-
-// NewProxy creates a Proxy according to the specified frontendAddr and backendAddr.
-func NewProxy(frontendAddr, backendAddr net.Addr, listenFd uintptr) (Proxy, error) {
-	switch frontendAddr.(type) {
-	case *net.UDPAddr:
-		return NewUDPProxy(listenFd, backendAddr.(*net.UDPAddr))
-	case *net.TCPAddr:
-		return NewTCPProxy(listenFd, backendAddr.(*net.TCPAddr))
-	case *sctp.SCTPAddr:
-		return NewSCTPProxy(frontendAddr.(*sctp.SCTPAddr), backendAddr.(*sctp.SCTPAddr))
-	default:
-		panic("Unsupported protocol")
-	}
 }
