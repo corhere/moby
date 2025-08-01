@@ -17,6 +17,7 @@ import (
 	dopts "github.com/moby/moby/v2/daemon/internal/opts"
 	"github.com/moby/moby/v2/daemon/pkg/opts"
 	"github.com/moby/moby/v2/daemon/pkg/registry"
+	"github.com/moby/moby/v2/daemon/server"
 	"github.com/pkg/errors"
 	"github.com/spf13/pflag"
 	"golang.org/x/text/encoding"
@@ -55,15 +56,6 @@ const (
 	DefaultContainersNamespace = "moby"
 	// DefaultPluginNamespace is the name of the default containerd namespace used for plugins.
 	DefaultPluginNamespace = "plugins.moby"
-	// MaxAPIVersion is the highest REST API version supported by the daemon.
-	//
-	// This version may be lower than the version of the api library module used.
-	MaxAPIVersion = "1.52"
-	// MinAPIVersion is the minimum API version supported by the API.
-	// This version can be overridden through the "DOCKER_MIN_API_VERSION"
-	// environment variable. It currently defaults to the minimum API version
-	// implemented in the API module.
-	MinAPIVersion = "1.24"
 	// SeccompProfileDefault is the built-in default seccomp profile.
 	SeccompProfileDefault = "builtin"
 	// SeccompProfileUnconfined is a special profile name for seccomp to use an
@@ -340,7 +332,7 @@ func New() (*Config, error) {
 			ContainerdPluginNamespace: DefaultPluginNamespace,
 			Features:                  make(map[string]bool),
 			DefaultRuntime:            StockRuntimeName,
-			MinAPIVersion:             MinAPIVersion,
+			MinAPIVersion:             server.MinAPIVersion,
 		},
 	}
 
@@ -674,11 +666,11 @@ func ValidateMinAPIVersion(ver string) error {
 	if strings.EqualFold(ver[0:1], "v") {
 		return errors.New(`API version must be provided without "v" prefix`)
 	}
-	if versions.LessThan(ver, MinAPIVersion) {
-		return errors.Errorf(`minimum supported API version is %s: %s`, MinAPIVersion, ver)
+	if versions.LessThan(ver, server.MinAPIVersion) {
+		return errors.Errorf(`minimum supported API version is %s: %s`, server.MinAPIVersion, ver)
 	}
-	if versions.GreaterThan(ver, MaxAPIVersion) {
-		return errors.Errorf(`maximum supported API version is %s: %s`, MaxAPIVersion, ver)
+	if versions.GreaterThan(ver, server.MaxAPIVersion) {
+		return errors.Errorf(`maximum supported API version is %s: %s`, server.MaxAPIVersion, ver)
 	}
 	return nil
 }

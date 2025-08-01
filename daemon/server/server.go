@@ -18,6 +18,20 @@ import (
 	"go.opentelemetry.io/otel/baggage"
 )
 
+const (
+	// MaxAPIVersion is the highest REST API version supported by the daemon.
+	//
+	// This version may be lower than the version of the api library module used.
+	MaxAPIVersion = "1.52"
+
+	// MinAPIVersion is the minimum API version supported by the API.
+	//
+	// This version can be overridden through the "DOCKER_MIN_API_VERSION"
+	// environment variable. It currently defaults to the minimum API version
+	// implemented in the API module.
+	MinAPIVersion = "1.24"
+)
+
 // versionMatcher defines a variable matcher to be parsed by the router
 // when a request is about to be served.
 const versionMatcher = "/v{version:[0-9.]+}"
