@@ -7,7 +7,6 @@ import (
 	"runtime"
 
 	"github.com/moby/moby/api/types/versions"
-	"github.com/moby/moby/v2/daemon/config"
 	"github.com/moby/moby/v2/daemon/server/httputils"
 )
 
@@ -34,12 +33,6 @@ type VersionMiddleware struct {
 
 // NewVersionMiddleware creates a VersionMiddleware with the given versions.
 func NewVersionMiddleware(serverVersion, defaultAPIVersion, minAPIVersion string) (*VersionMiddleware, error) {
-	if versions.LessThan(defaultAPIVersion, config.MinAPIVersion) || versions.GreaterThan(defaultAPIVersion, config.MaxAPIVersion) {
-		return nil, fmt.Errorf("invalid default API version (%s): must be between %s and %s", defaultAPIVersion, config.MinAPIVersion, config.MaxAPIVersion)
-	}
-	if versions.LessThan(minAPIVersion, config.MinAPIVersion) || versions.GreaterThan(minAPIVersion, config.MaxAPIVersion) {
-		return nil, fmt.Errorf("invalid minimum API version (%s): must be between %s and %s", minAPIVersion, config.MinAPIVersion, config.MaxAPIVersion)
-	}
 	if versions.GreaterThan(minAPIVersion, defaultAPIVersion) {
 		return nil, fmt.Errorf("invalid API version: the minimum API version (%s) is higher than the default version (%s)", minAPIVersion, defaultAPIVersion)
 	}
