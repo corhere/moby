@@ -8,8 +8,8 @@ import (
 
 	"github.com/containerd/log"
 	"github.com/docker/distribution/registry/client/auth"
-	"github.com/moby/moby/api/types/filters"
 	"github.com/moby/moby/api/types/registry"
+	filters "github.com/moby/moby/v2/daemon/internal/filter"
 	"github.com/pkg/errors"
 )
 

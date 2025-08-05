@@ -18,9 +18,9 @@ import (
 	"github.com/distribution/reference"
 	"github.com/moby/buildkit/util/attestation"
 	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
-	"github.com/moby/moby/api/types/filters"
 	imagetypes "github.com/moby/moby/api/types/image"
 	timetypes "github.com/moby/moby/api/types/time"
+	filters "github.com/moby/moby/v2/daemon/internal/filter"
 	"github.com/moby/moby/v2/daemon/server/backend"
 	"github.com/moby/moby/v2/errdefs"
 	"github.com/opencontainers/go-digest"
@@ -67,7 +67,7 @@ func (i *ImageService) Images(ctx context.Context, opts imagetypes.ListOptions) 
 		return nil, err
 	}
 
-	filter, err := i.setupFilters(ctx, opts.Filters)
+	filter, err := i.setupFilters(ctx, filters.Args(filters.FromAPIFilters(opts.Filters)))
 	if err != nil {
 		return nil, err
 	}

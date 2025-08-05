@@ -9,7 +9,6 @@ import (
 	"github.com/docker/distribution"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/events"
-	"github.com/moby/moby/api/types/filters"
 	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/api/types/registry"
 	"github.com/moby/moby/api/types/swarm"
@@ -17,6 +16,7 @@ import (
 	"github.com/moby/moby/api/types/volume"
 	clustertypes "github.com/moby/moby/v2/daemon/cluster/provider"
 	containerpkg "github.com/moby/moby/v2/daemon/container"
+	"github.com/moby/moby/v2/daemon/internal/filter"
 	"github.com/moby/moby/v2/daemon/internal/image"
 	"github.com/moby/moby/v2/daemon/libnetwork"
 	"github.com/moby/moby/v2/daemon/libnetwork/cluster"
@@ -57,7 +57,7 @@ type Backend interface {
 	DaemonJoinsCluster(provider cluster.Provider)
 	DaemonLeavesCluster()
 	IsSwarmCompatible() error
-	SubscribeToEvents(since, until time.Time, filter filters.Args) ([]events.Message, chan interface{})
+	SubscribeToEvents(since, until time.Time, filter filter.Args) ([]events.Message, chan interface{})
 	UnsubscribeFromEvents(listener chan interface{})
 	UpdateAttachment(string, string, string, *network.NetworkingConfig) error
 	WaitForDetachment(context.Context, string, string, string, string) error

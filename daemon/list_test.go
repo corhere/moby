@@ -10,8 +10,8 @@ import (
 
 	"github.com/google/uuid"
 	containertypes "github.com/moby/moby/api/types/container"
-	"github.com/moby/moby/api/types/filters"
 	"github.com/moby/moby/v2/daemon/container"
+	"github.com/moby/moby/v2/daemon/internal/filter"
 	"github.com/moby/moby/v2/daemon/internal/image"
 	"github.com/opencontainers/go-digest"
 	"gotest.tools/v3/assert"
@@ -130,7 +130,7 @@ func TestContainerList_InvalidFilter(t *testing.T) {
 	}
 
 	_, err = d.Containers(context.Background(), &containertypes.ListOptions{
-		Filters: filters.NewArgs(filters.Arg("invalid", "foo")),
+		Filters: filter.NewArgs(filter.Arg("invalid", "foo")).APIFilters(),
 	})
 	assert.Assert(t, is.Error(err, "invalid filter 'invalid'"))
 }
@@ -151,7 +151,7 @@ func TestContainerList_NameFilter(t *testing.T) {
 	// moby/moby #37453 - ^ regex not working due to prefix slash
 	// not being stripped
 	containerList, err := d.Containers(context.Background(), &containertypes.ListOptions{
-		Filters: filters.NewArgs(filters.Arg("name", "^a")),
+		Filters: filter.NewArgs(filter.Arg("name", "^a")).APIFilters(),
 	})
 	assert.NilError(t, err)
 	assert.Assert(t, is.Len(containerList, 2))
@@ -160,7 +160,7 @@ func TestContainerList_NameFilter(t *testing.T) {
 
 	// Same as above but with slash prefix should produce the same result
 	containerListWithPrefix, err := d.Containers(context.Background(), &containertypes.ListOptions{
-		Filters: filters.NewArgs(filters.Arg("name", "^/a")),
+		Filters: filter.NewArgs(filter.Arg("name", "^/a")).APIFilters(),
 	})
 	assert.NilError(t, err)
 	assert.Assert(t, is.Len(containerListWithPrefix, 2))
@@ -169,7 +169,7 @@ func TestContainerList_NameFilter(t *testing.T) {
 
 	// Same as above but make sure it works for exact names
 	containerList, err = d.Containers(context.Background(), &containertypes.ListOptions{
-		Filters: filters.NewArgs(filters.Arg("name", "b1")),
+		Filters: filter.NewArgs(filter.Arg("name", "b1")).APIFilters(),
 	})
 	assert.NilError(t, err)
 	assert.Assert(t, is.Len(containerList, 1))
@@ -177,7 +177,7 @@ func TestContainerList_NameFilter(t *testing.T) {
 
 	// Same as above but with slash prefix should produce the same result
 	containerListWithPrefix, err = d.Containers(context.Background(), &containertypes.ListOptions{
-		Filters: filters.NewArgs(filters.Arg("name", "/b1")),
+		Filters: filter.NewArgs(filter.Arg("name", "/b1")).APIFilters(),
 	})
 	assert.NilError(t, err)
 	assert.Assert(t, is.Len(containerListWithPrefix, 1))

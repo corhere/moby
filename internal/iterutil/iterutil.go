@@ -27,3 +27,14 @@ func Deref[T any, P *T](s iter.Seq[P]) iter.Seq[T] {
 		}
 	}
 }
+
+// ForEachErr iterates over a sequence and applies a function to each element.
+// If the function returns an error, the iteration stops and the error is returned.
+func ForEachErr[T any](s iter.Seq[T], f func(T) error) error {
+	for v := range s {
+		if err := f(v); err != nil {
+			return err
+		}
+	}
+	return nil
+}

@@ -3,9 +3,9 @@ package cluster
 import (
 	"context"
 
-	"github.com/moby/moby/api/types/filters"
 	types "github.com/moby/moby/api/types/swarm"
 	"github.com/moby/moby/v2/daemon/cluster/convert"
+	filters "github.com/moby/moby/v2/daemon/internal/filter"
 	swarmapi "github.com/moby/swarmkit/v2/api"
 	"google.golang.org/grpc"
 )
@@ -46,7 +46,7 @@ func (c *Cluster) GetTasks(options types.TaskListOptions) ([]types.Task, error) 
 			return nil
 		}
 
-		f, err := newListTasksFilters(options.Filters, filterTransform)
+		f, err := newListTasksFilters(filters.Args(filters.FromAPIFilters(options.Filters)), filterTransform)
 		if err != nil {
 			return err
 		}

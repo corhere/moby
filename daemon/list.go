@@ -13,8 +13,8 @@ import (
 	"github.com/containerd/log"
 	"github.com/docker/go-connections/nat"
 	containertypes "github.com/moby/moby/api/types/container"
-	"github.com/moby/moby/api/types/filters"
 	"github.com/moby/moby/v2/daemon/container"
+	filters "github.com/moby/moby/v2/daemon/internal/filter"
 	"github.com/moby/moby/v2/daemon/internal/image"
 	"github.com/moby/moby/v2/daemon/server/backend"
 	"github.com/moby/moby/v2/errdefs"
@@ -263,7 +263,7 @@ func (daemon *Daemon) filterByNameIDMatches(view *container.View, filter *listCo
 
 // foldFilter generates the container filter based on the user's filtering options.
 func (daemon *Daemon) foldFilter(ctx context.Context, view *container.View, config *containertypes.ListOptions) (*listContext, error) {
-	psFilters := config.Filters
+	psFilters := filters.Args(filters.FromAPIFilters(config.Filters))
 
 	var filtExited []int
 

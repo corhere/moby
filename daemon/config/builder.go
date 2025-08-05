@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	bkconfig "github.com/moby/buildkit/cmd/buildkitd/config"
-	"github.com/moby/moby/api/types/filters"
+	filters "github.com/moby/moby/v2/daemon/internal/filter"
 )
 
 // BuilderGCRule represents a GC rule for buildkit cache

@@ -3,7 +3,7 @@ package cluster
 import (
 	"testing"
 
-	"github.com/moby/moby/api/types/filters"
+	filters "github.com/moby/moby/v2/daemon/internal/filter"
 )
 
 func TestNewListSecretsFilters(t *testing.T) {

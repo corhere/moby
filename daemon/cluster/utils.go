@@ -2,22 +2,18 @@ package cluster
 
 import (
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
-	"strings"
+	"slices"
 
+	"github.com/moby/moby/v2/daemon/internal/labelutil"
 	"github.com/moby/sys/atomicwriter"
 )
 
 // convertKVStringsToMap converts ["key=value"] to {"key":"value"}
 func convertKVStringsToMap(values []string) map[string]string {
-	result := make(map[string]string, len(values))
-	for _, value := range values {
-		k, v, _ := strings.Cut(value, "=")
-		result[k] = v
-	}
-
-	return result
+	return maps.Collect(labelutil.All(slices.Values(values)))
 }
 
 func loadPersistentState(root string) (*nodeStartConfig, error) {

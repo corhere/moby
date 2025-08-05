@@ -7,8 +7,8 @@ import (
 
 	"github.com/distribution/reference"
 	"github.com/moby/moby/api/types"
-	"github.com/moby/moby/api/types/filters"
 	"github.com/moby/moby/api/types/registry"
+	filters "github.com/moby/moby/v2/daemon/internal/filter"
 	"github.com/moby/moby/v2/daemon/pkg/plugin"
 	"github.com/moby/moby/v2/daemon/server/backend"
 )

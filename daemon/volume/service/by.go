@@ -1,7 +1,7 @@
 package service
 
 import (
-	"github.com/moby/moby/api/types/filters"
+	filters "github.com/moby/moby/v2/daemon/internal/filter"
 	"github.com/moby/moby/v2/daemon/volume"
 )
 

@@ -6,8 +6,8 @@ import (
 
 	"github.com/moby/go-archive"
 	"github.com/moby/moby/api/types/container"
-	"github.com/moby/moby/api/types/filters"
 	containerpkg "github.com/moby/moby/v2/daemon/container"
+	"github.com/moby/moby/v2/daemon/internal/filter"
 	"github.com/moby/moby/v2/daemon/server/backend"
 	"github.com/moby/moby/v2/pkg/sysinfo"
 )
@@ -62,7 +62,7 @@ type attachBackend interface {
 
 // systemBackend includes functions to implement to provide system wide containers functionality
 type systemBackend interface {
-	ContainersPrune(ctx context.Context, pruneFilters filters.Args) (*container.PruneReport, error)
+	ContainersPrune(ctx context.Context, pruneFilters filter.Args) (*container.PruneReport, error)
 }
 
 type commitBackend interface {

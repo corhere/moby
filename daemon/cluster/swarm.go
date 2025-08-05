@@ -9,9 +9,9 @@ import (
 
 	"github.com/containerd/log"
 	"github.com/moby/moby/api/types/container"
-	"github.com/moby/moby/api/types/filters"
 	types "github.com/moby/moby/api/types/swarm"
 	"github.com/moby/moby/v2/daemon/cluster/convert"
+	filters "github.com/moby/moby/v2/daemon/internal/filter"
 	"github.com/moby/moby/v2/daemon/internal/stack"
 	"github.com/moby/moby/v2/daemon/pkg/opts"
 	"github.com/moby/moby/v2/daemon/server/backend"
@@ -608,7 +608,7 @@ func initClusterSpec(node *swarmnode.Node, spec types.Spec) error {
 func (c *Cluster) listContainerForNode(ctx context.Context, nodeID string) ([]string, error) {
 	var ids []string
 	containers, err := c.config.Backend.Containers(ctx, &container.ListOptions{
-		Filters: filters.NewArgs(filters.Arg("label", "com.docker.swarm.node.id="+nodeID)),
+		Filters: filters.NewArgs(filters.Arg("label", "com.docker.swarm.node.id="+nodeID)).APIFilters(),
 	})
 	if err != nil {
 		return []string{}, err

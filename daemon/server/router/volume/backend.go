@@ -3,8 +3,8 @@ package volume
 import (
 	"context"
 
-	"github.com/moby/moby/api/types/filters"
 	"github.com/moby/moby/api/types/volume"
+	filters "github.com/moby/moby/v2/daemon/internal/filter"
 	"github.com/moby/moby/v2/daemon/volume/service/opts"
 )
 
