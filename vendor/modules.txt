@@ -780,6 +780,9 @@ github.com/hashicorp/go-multierror
 # github.com/hashicorp/go-sockaddr v1.0.2
 ## explicit
 github.com/hashicorp/go-sockaddr
+# github.com/hashicorp/go-version v1.7.0
+## explicit
+github.com/hashicorp/go-version
 # github.com/hashicorp/golang-lru v0.5.4
 ## explicit; go 1.12
 github.com/hashicorp/golang-lru/simplelru
@@ -813,6 +816,9 @@ github.com/ishidawataru/sctp
 # github.com/jmoiron/sqlx v1.3.3
 ## explicit; go 1.10
 github.com/jmoiron/sqlx/types
+# github.com/json-iterator/go v1.1.12
+## explicit; go 1.12
+github.com/json-iterator/go
 # github.com/klauspost/compress v1.18.1
 ## explicit; go 1.23
 github.com/klauspost/compress
@@ -1179,6 +1185,12 @@ github.com/moby/sys/userns
 ## explicit; go 1.18
 github.com/moby/term
 github.com/moby/term/windows
+# github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd
+## explicit
+github.com/modern-go/concurrent
+# github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee
+## explicit; go 1.12
+github.com/modern-go/reflect2
 # github.com/montanaflynn/stats v0.7.1
 ## explicit; go 1.13
 github.com/montanaflynn/stats
@@ -1421,6 +1433,19 @@ go.opencensus.io/trace/tracestate
 ## explicit; go 1.24.0
 go.opentelemetry.io/auto/sdk
 go.opentelemetry.io/auto/sdk/internal/telemetry
+# go.opentelemetry.io/collector/featuregate v1.45.0
+## explicit; go 1.24.0
+go.opentelemetry.io/collector/featuregate
+# go.opentelemetry.io/collector/pdata v1.45.0
+## explicit; go 1.24.0
+go.opentelemetry.io/collector/pdata/internal
+go.opentelemetry.io/collector/pdata/internal/json
+go.opentelemetry.io/collector/pdata/internal/otelgrpc
+go.opentelemetry.io/collector/pdata/internal/otlp
+go.opentelemetry.io/collector/pdata/internal/proto
+go.opentelemetry.io/collector/pdata/pcommon
+go.opentelemetry.io/collector/pdata/ptrace
+go.opentelemetry.io/collector/pdata/ptrace/ptraceotlp
 # go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.61.0
 ## explicit; go 1.23.0
 go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc
