@@ -742,6 +742,11 @@ func (ru Rule) delete(ctx context.Context, t *table) (bool, error) {
 // ////////////////////////////
 // Maps
 
+type mapValue struct {
+	Value   string
+	Comment string
+}
+
 // nftMap is the internal representation of an nftables map (including verdict maps).
 // Its elements need to be exported for use by text/template, but they should only be
 // manipulated via exported methods.
@@ -750,8 +755,8 @@ type nftMap struct {
 	Name            string
 	ElementTypeExpr string
 	Flags           []string
-	Elements        map[string]string
-	AddedElements   map[string]string
+	Elements        map[string]mapValue
+	AddedElements   map[string]mapValue
 	DeletedElements map[string]string
 	MustFlush       bool
 }
@@ -779,8 +784,8 @@ func (m Map) create(ctx context.Context, t *table) (bool, error) {
 		Name:            m.Name,
 		ElementTypeExpr: m.ElementType.mapType(),
 		Flags:           slices.Clone(m.Flags),
-		Elements:        map[string]string{},
-		AddedElements:   map[string]string{},
+		Elements:        map[string]mapValue{},
+		AddedElements:   map[string]mapValue{},
 		DeletedElements: map[string]string{},
 		MustFlush:       true,
 	}
@@ -818,6 +823,7 @@ type MapElement struct {
 	MapName string
 	Key     string
 	Value   string
+	Comment string
 }
 
 func (me MapElement) create(ctx context.Context, t *table) (bool, error) {
@@ -834,15 +840,19 @@ func (me MapElement) create(ctx context.Context, t *table) (bool, error) {
 	if _, ok := nm.Elements[me.Key]; ok {
 		return false, fmt.Errorf("map '%s' already contains element '%s'", me.MapName, me.Key)
 	}
-	nm.Elements[me.Key] = me.Value
-	nm.AddedElements[me.Key] = me.Value
+	nm.Elements[me.Key] = mapValue{
+		Value:   me.Value,
+		Comment: me.Comment,
+	}
+	nm.AddedElements[me.Key] = nm.Elements[me.Key]
 	delete(nm.DeletedElements, me.Key)
 	log.G(ctx).WithFields(log.Fields{
-		"family": t.Family,
-		"table":  t.Name,
-		"map":    me.MapName,
-		"key":    me.Key,
-		"value":  me.Value,
+		"family":  t.Family,
+		"table":   t.Name,
+		"map":     me.MapName,
+		"key":     me.Key,
+		"value":   me.Value,
+		"comment": me.Comment,
 	}).Debug("nftables: added map element")
 	return true, nil
 }
@@ -856,25 +866,30 @@ func (me MapElement) delete(ctx context.Context, t *table) (bool, error) {
 	if !ok {
 		return false, fmt.Errorf("map '%s' does not contain element '%s'", me.MapName, me.Key)
 	}
-	if oldValue != me.Value {
+	if oldValue.Value != me.Value {
 		return false, fmt.Errorf("cannot delete map '%s' element '%s', value was '%s', not '%s'",
-			me.MapName, me.Key, oldValue, me.Value)
+			me.MapName, me.Key, oldValue.Value, me.Value)
 	}
 	delete(nm.Elements, me.Key)
 	delete(nm.AddedElements, me.Key)
 	nm.DeletedElements[me.Key] = me.Value
 	log.G(ctx).WithFields(log.Fields{
-		"family": t.Family,
-		"table":  t.Name,
-		"map":    me.MapName,
-		"key":    me.Key,
-		"value":  me.Value,
+		"family":  t.Family,
+		"table":   t.Name,
+		"map":     me.MapName,
+		"key":     me.Key,
+		"value":   me.Value,
+		"comment": me.Comment,
 	}).Debug("nftables: deleted map element")
 	return true, nil
 }
 
 // ////////////////////////////
 // Sets
+
+type setElementOptions struct {
+	Comment string
+}
 
 // set is the internal representation of an nftables set.
 // Its elements need to be exported for use by text/template, but they should only be
@@ -884,8 +899,8 @@ type set struct {
 	Name            string
 	ElementTypeExpr string
 	Flags           []string
-	Elements        map[string]struct{}
-	AddedElements   map[string]struct{}
+	Elements        map[string]setElementOptions
+	AddedElements   map[string]setElementOptions
 	DeletedElements map[string]struct{}
 	MustFlush       bool
 }
@@ -912,10 +927,10 @@ func (sd Set) create(ctx context.Context, t *table) (bool, error) {
 	s := &set{
 		table:           t,
 		Name:            sd.Name,
-		Elements:        map[string]struct{}{},
+		Elements:        map[string]setElementOptions{},
 		ElementTypeExpr: sd.ElementType.setType(),
 		Flags:           slices.Clone(sd.Flags),
-		AddedElements:   map[string]struct{}{},
+		AddedElements:   map[string]setElementOptions{},
 		DeletedElements: map[string]struct{}{},
 		MustFlush:       true,
 	}
@@ -952,6 +967,7 @@ func (sd Set) delete(ctx context.Context, t *table) (bool, error) {
 type SetElement struct {
 	SetName string
 	Element string
+	Comment string
 	// If true, deleting an element that does not exist or creating an
 	// element that already exists will succeed.
 	Idempotent bool
@@ -971,14 +987,17 @@ func (se SetElement) create(ctx context.Context, t *table) (bool, error) {
 		}
 		return false, fmt.Errorf("set '%s' already contains element '%s'", s.Name, se.Element)
 	}
-	s.Elements[se.Element] = struct{}{}
-	s.AddedElements[se.Element] = struct{}{}
+	s.Elements[se.Element] = setElementOptions{
+		Comment: se.Comment,
+	}
+	s.AddedElements[se.Element] = s.Elements[se.Element]
 	delete(s.DeletedElements, se.Element)
 	log.G(ctx).WithFields(log.Fields{
 		"family":  t.Family,
 		"table":   t.Name,
 		"set":     s.Name,
 		"element": se.Element,
+		"comment": se.Comment,
 	}).Debug("nftables: added set element")
 	return true, nil
 }
@@ -1002,6 +1021,7 @@ func (se SetElement) delete(ctx context.Context, t *table) (bool, error) {
 		"table":   t.Name,
 		"set":     s.Name,
 		"element": se.Element,
+		"comment": se.Comment,
 	}).Debug("nftables: deleted set element")
 	return true, nil
 }
@@ -1055,12 +1075,12 @@ func (t *table) updatesApplied() {
 		c.MustFlush = false
 	}
 	for _, m := range t.Maps {
-		m.AddedElements = map[string]string{}
+		m.AddedElements = map[string]mapValue{}
 		m.DeletedElements = map[string]string{}
 		m.MustFlush = false
 	}
 	for _, s := range t.Sets {
-		s.AddedElements = map[string]struct{}{}
+		s.AddedElements = map[string]setElementOptions{}
 		s.DeletedElements = map[string]struct{}{}
 		s.MustFlush = false
 	}
