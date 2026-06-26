@@ -107,4 +107,6 @@ type loadBalancer struct {
 	// Back pointer to service to which the loadbalancer belongs.
 	service *service
 	sync.Mutex
+
+	osLoadBalancer
 }

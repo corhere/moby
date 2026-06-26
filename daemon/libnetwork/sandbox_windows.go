@@ -7,6 +7,8 @@ import (
 	"github.com/moby/moby/v2/errdefs"
 )
 
+type osSandbox struct{}
+
 func releaseOSSboxResources(*osl.Namespace, *Endpoint) {}
 
 func (sb *Sandbox) updateGateway(_, _ *Endpoint) error {

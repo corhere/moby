@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/containerd/log"
+	"github.com/moby/moby/v2/daemon/libnetwork/internal/nftables"
 	"github.com/moby/moby/v2/daemon/libnetwork/netutils"
 	"github.com/moby/moby/v2/daemon/libnetwork/osl"
 	"github.com/moby/moby/v2/daemon/libnetwork/types"
@@ -14,6 +15,10 @@ import (
 
 // Linux-specific container configuration flags.
 type containerConfigOS struct{} //nolint:nolintlint,unused // only populated on windows
+
+type osSandbox struct {
+	nftables map[nftables.Family]map[string]nftables.Table
+}
 
 func releaseOSSboxResources(ns *osl.Namespace, ep *Endpoint) {
 	for _, i := range ns.Interfaces() {

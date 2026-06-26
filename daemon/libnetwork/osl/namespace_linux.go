@@ -16,6 +16,7 @@ import (
 	"github.com/containerd/log"
 	"github.com/moby/moby/v2/daemon/internal/rootless"
 	"github.com/moby/moby/v2/daemon/internal/unshare"
+	"github.com/moby/moby/v2/daemon/libnetwork/internal/nftables"
 	"github.com/moby/moby/v2/daemon/libnetwork/nlwrap"
 	"github.com/moby/moby/v2/daemon/libnetwork/ns"
 	"github.com/moby/moby/v2/daemon/libnetwork/osl/kernel"
@@ -567,6 +568,9 @@ func (n *Namespace) RefreshIPv6LoEnabled() {
 
 // ApplyOSTweaks applies operating system specific knobs on the sandbox.
 func (n *Namespace) ApplyOSTweaks(types []SandboxType) {
+	if nftables.Enabled() {
+		return
+	}
 	for _, t := range types {
 		switch t {
 		case SandboxTypeLoadBalancer, SandboxTypeIngress:

@@ -4,6 +4,8 @@ package osl
 
 import "errors"
 
+type osSandbox struct{}
+
 // ErrNotImplemented is for platforms which don't implement sandbox
 var ErrNotImplemented = errors.New("not implemented")
 
